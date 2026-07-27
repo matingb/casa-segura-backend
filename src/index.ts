@@ -1,31 +1,21 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import { pool } from './config/db';
-
+import cookieParser from 'cookie-parser';
 import productoRoutes from './routes/producto.routes';
-
-dotenv.config();
+import authRoutes from './routes/auth.routes';
 
 const app = express();
 const port = process.env.PORT || 8080;
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+}));
 app.use(express.json());
+app.use(cookieParser());
 
-// Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/productos', productoRoutes);
-
-app.get('/health', async (req, res) => {
-  try {
-    const { rowCount } = await pool.query('SELECT id FROM public.tenant LIMIT 1');
-    
-    res.json({ status: 'ok', message: 'Server is running and connected to Database' });
-  } catch (err: any) {
-    console.error('Database connection error:', err.message);
-    res.status(500).json({ status: 'error', message: 'Internal Server Error / Database connection failed' });
-  }
-});
 
 app.listen(port, () => {
   console.log(`[server]: Server is running at http://localhost:${port}`);

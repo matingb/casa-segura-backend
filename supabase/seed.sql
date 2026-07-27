@@ -15,6 +15,10 @@ INSERT INTO auth.users (
     email,
     encrypted_password,
     email_confirmed_at,
+    confirmation_token,
+    recovery_token,
+    email_change_token_new,
+    email_change,
     raw_app_meta_data,
     raw_user_meta_data,
     created_at,
@@ -27,6 +31,10 @@ INSERT INTO auth.users (
     'garzangb@gmail.com',
     crypt('12345678', gen_salt('bf')),
     now(),
+    '',
+    '',
+    '',
+    '',
     '{"provider":"email","providers":["email"]}',
     '{}',
     now(),
@@ -54,14 +62,62 @@ INSERT INTO auth.identities (
     now()
 );
 
--- 3. Crear el registro en public.usuario mapeado al tenant y al auth.user
-INSERT INTO public.usuario (id, tenant_id, auth_id, nombre)
-VALUES (
-    '00000000-0000-0000-0000-000000000003',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000002',
-    'Usuario Dev'
+-- Usuario 2: nachoromero84@hotmail.com
+INSERT INTO auth.users (
+    id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) VALUES (
+    '00000000-0000-0000-0000-000000000004',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated',
+    'nachoromero84@hotmail.com',
+    crypt('12345678', gen_salt('bf')),
+    now(), '', '', '', '',
+    '{"provider":"email","providers":["email"]}', '{}',
+    now(), now()
 );
+
+INSERT INTO auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+VALUES (
+    uuid_generate_v4(),
+    '00000000-0000-0000-0000-000000000004',
+    '00000000-0000-0000-0000-000000000004',
+    format('{"sub":"%s","email":"%s"}', '00000000-0000-0000-0000-000000000004', 'nachoromero84@hotmail.com')::jsonb,
+    'email', now(), now(), now()
+);
+
+-- Usuario 3: fragassidonatella1@gmail.com
+INSERT INTO auth.users (
+    id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) VALUES (
+    '00000000-0000-0000-0000-000000000005',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated',
+    'fragassidonatella1@gmail.com',
+    crypt('12345678', gen_salt('bf')),
+    now(), '', '', '', '',
+    '{"provider":"email","providers":["email"]}', '{}',
+    now(), now()
+);
+
+INSERT INTO auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+VALUES (
+    uuid_generate_v4(),
+    '00000000-0000-0000-0000-000000000005',
+    '00000000-0000-0000-0000-000000000005',
+    format('{"sub":"%s","email":"%s"}', '00000000-0000-0000-0000-000000000005', 'fragassidonatella1@gmail.com')::jsonb,
+    'email', now(), now(), now()
+);
+
+-- 3. Crear registros en public.usuario mapeados al tenant
+INSERT INTO public.usuario (id, tenant_id, auth_id, nombre)
+VALUES
+    ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Usuario Dev'),
+    ('00000000-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'Nacho Romero'),
+    ('00000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000005', 'Donatella Fragassi');
 
 -- 4. Crear 5 Productos asociados al Tenant
 INSERT INTO public.producto (tenant_id, codigo, nombre, marca, modelo, precio_venta)

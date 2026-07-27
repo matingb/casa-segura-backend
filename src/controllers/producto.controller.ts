@@ -8,7 +8,7 @@ export class ProductoController {
     this.productoService = new ProductoService();
   }
 
-  getAllProductos = async (req: Request, res: Response) => {
+  getAllProductos = async (_req: Request, res: Response) => {
     try {
       const productos = await this.productoService.getAllProductos();
       
@@ -17,12 +17,10 @@ export class ProductoController {
         data: productos
       });
       
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in getAllProductos controller:', error);
-      res.status(500).json({
-        status: 'error',
-        message: error.message || 'Internal server error'
-      });
+      res.status(500).json({ status: 'error', message });
     }
   };
 }
