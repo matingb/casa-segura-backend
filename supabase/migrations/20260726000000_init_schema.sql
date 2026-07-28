@@ -1,16 +1,13 @@
--- Habilitar extensión para UUIDs
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- Crear tabla Tenant
 CREATE TABLE public.tenant (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     nombre_empresa VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Crear tabla Usuario
 CREATE TABLE public.usuario (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
     auth_id UUID REFERENCES auth.users(id) ON DELETE SET NULL, -- Referencia a auth.users propia de Supabase
     nombre VARCHAR(255) NOT NULL,
@@ -19,7 +16,7 @@ CREATE TABLE public.usuario (
 
 -- Crear tabla Producto
 CREATE TABLE public.producto (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
     codigo VARCHAR(100) NOT NULL,
     nombre VARCHAR(255) NOT NULL,
