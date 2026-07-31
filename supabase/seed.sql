@@ -122,8 +122,8 @@ VALUES
 -- 4. Crear 5 Productos asociados al Tenant
 INSERT INTO public.producto (tenant_id, codigo, nombre, marca, modelo, precio_venta)
 VALUES
-    ('cdea8278-3104-4af7-a202-3f2a1dfd94ac', 'PROD-001', 'Cámara de Seguridad Exterior 1080p', 'Dahua', 'DH-IPC-HFW', 45000),
-    ('cdea8278-3104-4af7-a202-3f2a1dfd94ac', 'PROD-002', 'DVR 4 Canales Inteligente', 'Hikvision', 'DS-7204', 62000),
-    ('cdea8278-3104-4af7-a202-3f2a1dfd94ac', 'PROD-003', 'Disco Rígido 1TB Especial Video', 'Western Digital', 'WD10PURZ', 35000),
-    ('cdea8278-3104-4af7-a202-3f2a1dfd94ac', 'PROD-004', 'Sensor de Movimiento Infrarrojo PIR', 'DSC', 'LC-100-PI', 12000),
-    ('cdea8278-3104-4af7-a202-3f2a1dfd94ac', 'PROD-005', 'Sirena Interior Alto Impacto 110dB', 'Alonso', 'MP-100', 8500);
+    ('00000000-0000-0000-0000-000000000001', 'PROD-001', 'Cámara de Seguridad Exterior 1080p', 'Dahua', 'DH-IPC-HFW', 45000),
+    ('00000000-0000-0000-0000-000000000001', 'PROD-002', 'DVR 4 Canales Inteligente', 'Hikvision', 'DS-7204', 62000),
+    ('00000000-0000-0000-0000-000000000001', 'PROD-003', 'Disco Rígido 1TB Especial Video', 'Western Digital', 'WD10PURZ', 35000),
+    ('00000000-0000-0000-0000-000000000001', 'PROD-004', 'Sensor de Movimiento Infrarrojo PIR', 'DSC', 'LC-100-PI', 12000),
+    ('00000000-0000-0000-0000-000000000001', 'PROD-005', 'Sirena Interior Alto Impacto 110dB', 'Alonso', 'MP-100', 8500);
