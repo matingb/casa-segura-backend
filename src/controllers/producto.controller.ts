@@ -1,17 +1,13 @@
 import { Request, Response } from 'express';
 import { ProductoService } from '../services/producto.service';
-import { ProductoRepository } from '../repositories/producto.repository';
-import { uploadProductImage, getPublicUrl } from '../services/storage.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse } from '../utils/response';
 
 export class ProductoController {
   private productoService: ProductoService;
-  private productoRepository: ProductoRepository;
 
   constructor() {
     this.productoService = new ProductoService();
-    this.productoRepository = new ProductoRepository();
   }
 
   getAllProductos = async (req: Request, res: Response): Promise<void> => {
@@ -85,22 +81,17 @@ export class ProductoController {
         return;
       }
 
-      const producto = await this.productoRepository.findById(id, tenantId);
-      if (!producto) {
-        res.status(404).json(errorResponse('Producto no encontrado'));
-        return;
-      }
-
-      const storagePath = await uploadProductImage(
-        tenantId,
+      const publicUrl = await this.productoService.uploadImage(
         id,
+        tenantId,
         req.file.buffer,
         req.file.mimetype
       );
 
-      const publicUrl = getPublicUrl(storagePath);
-
-      await this.productoRepository.updateImagePath(id, publicUrl, tenantId);
+      if (!publicUrl) {
+        res.status(404).json(errorResponse('Producto no encontrado'));
+        return;
+      }
 
       res.status(200).json(successResponse({ imagen_url: publicUrl }));
     } catch (error: unknown) {

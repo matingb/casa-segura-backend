@@ -1,4 +1,5 @@
 import { ProductoRepository, ProductoData } from '../repositories/producto.repository';
+import { uploadProductImage, getPublicUrl } from './storage.service';
 
 export class ProductoService {
   private productoRepository: ProductoRepository;
@@ -23,6 +24,17 @@ export class ProductoService {
     const producto = await this.productoRepository.findById(id, tenantId);
     if (!producto) return null;
     return this.productoRepository.update(id, data, tenantId);
+  }
+
+  async uploadImage(id: string, tenantId: string, buffer: Buffer, mimetype: string) {
+    const producto = await this.productoRepository.findById(id, tenantId);
+    if (!producto) return null;
+
+    const storagePath = await uploadProductImage(tenantId, id, buffer, mimetype);
+    const publicUrl = getPublicUrl(storagePath);
+    await this.productoRepository.updateImagePath(id, publicUrl, tenantId);
+    
+    return publicUrl;
   }
 }
 

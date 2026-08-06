@@ -6,6 +6,7 @@ export default defineConfig({
       SUPABASE_URL: 'http://localhost:54321',
       SUPABASE_KEY: 'test-key',
       SUPABASE_SERVICE_ROLE_KEY: 'test-role-key',
+      DB_URL: 'postgres://test:test@localhost:5432/test',
     },
     restoreMocks: true,
     setupFiles: ['./vitest.setup.ts'],
