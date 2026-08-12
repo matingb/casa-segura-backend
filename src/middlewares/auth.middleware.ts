@@ -17,12 +17,8 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     req.user = await authService.getUser(token);
     next();
   } catch (error: unknown) {
-    const isAuthError = error instanceof Error && error.name === 'AuthError';
-    if (isAuthError) {
-      res.status(401).json(errorResponse('Invalid or expired token'));
-      return;
-    }
+    const message = error instanceof Error ? error.message : 'Invalid or expired token';
     console.error('Auth middleware error:', error);
-    res.status(500).json(errorResponse('Internal server error during authentication'));
+    res.status(401).json(errorResponse(message));
   }
 };

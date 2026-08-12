@@ -9,6 +9,8 @@ export class ProductoSucursalRepository {
              p.marca           AS producto_marca,
              p.modelo          AS producto_modelo,
              p.imagen_url      AS producto_imagen_url,
+             p.subtipo_id      AS producto_subtipo_id,
+             p.activo          AS producto_activo,
              s.nombre          AS sucursal_nombre
       FROM public.producto_sucursal ps
       JOIN public.producto  p ON p.id = ps.producto_id
