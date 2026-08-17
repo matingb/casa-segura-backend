@@ -15,7 +15,7 @@ vi.mock('../utils/response', () => ({
 
 describe('ProductoController', () => {
   let controller: ProductoController;
-  let req: Partial<Request>;
+  let req: any;
   let res: Partial<Response>;
   const TENANT_ID = 'tenant-123';
   const AUTH_ID = 'auth-123';
@@ -40,7 +40,7 @@ describe('ProductoController', () => {
       const mockProductos = [{ id: '1', nombre: 'Prod 1' }];
       vi.mocked(ProductoService.prototype.getAllProductos).mockResolvedValue(mockProductos as any);
 
-      await controller.getAllProductos(req as Request, res as Response);
+      await controller.getAllProductos(req, res as Response);
 
       expect(getTenantIdByAuthId).toHaveBeenCalledWith(AUTH_ID);
       expect(ProductoService.prototype.getAllProductos).toHaveBeenCalledWith(TENANT_ID);
@@ -53,7 +53,7 @@ describe('ProductoController', () => {
       const mockItems = [{ id: '1', nombre: 'Prod 1' }, { id: '2', nombre: 'Prod 2' }];
       vi.mocked(ProductoService.prototype.getPaginated).mockResolvedValue({ items: mockItems as any, hasMore: true });
 
-      await controller.getAllProductos(req as Request, res as Response);
+      await controller.getAllProductos(req, res as Response);
 
       expect(ProductoService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 2, 0, undefined);
       expect(res.status).toHaveBeenCalledWith(200);
@@ -65,7 +65,7 @@ describe('ProductoController', () => {
       const mockItems = [{ id: '1', nombre: 'Cámara Dahua' }];
       vi.mocked(ProductoService.prototype.getPaginated).mockResolvedValue({ items: mockItems as any, hasMore: false });
 
-      await controller.getAllProductos(req as Request, res as Response);
+      await controller.getAllProductos(req, res as Response);
 
       expect(ProductoService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 5, 0, 'camara');
       expect(res.status).toHaveBeenCalledWith(200);
@@ -78,7 +78,7 @@ describe('ProductoController', () => {
       const mockProducto = { id: 'prod-1', nombre: 'Prod 1' };
       vi.mocked(ProductoService.prototype.getProducto).mockResolvedValue(mockProducto as any);
 
-      await controller.getProducto(req as Request, res as Response);
+      await controller.getProducto(req, res as Response);
 
       expect(ProductoService.prototype.getProducto).toHaveBeenCalledWith('prod-1', TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(200);
@@ -89,7 +89,7 @@ describe('ProductoController', () => {
       req.params = { id: 'prod-1' };
       vi.mocked(ProductoService.prototype.getProducto).mockResolvedValue(null);
 
-      await controller.getProducto(req as Request, res as Response);
+      await controller.getProducto(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(errorResponse('Producto no encontrado'));
@@ -102,7 +102,7 @@ describe('ProductoController', () => {
       const mockProducto = { id: 'prod-1', ...req.body, tenant_id: TENANT_ID };
       vi.mocked(ProductoService.prototype.createProducto).mockResolvedValue(mockProducto as any);
 
-      await controller.createProducto(req as Request, res as Response);
+      await controller.createProducto(req, res as Response);
 
       expect(ProductoService.prototype.createProducto).toHaveBeenCalledWith(req.body, TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(201);
@@ -117,7 +117,7 @@ describe('ProductoController', () => {
       const mockProducto = { id: 'prod-1', ...req.body, tenant_id: TENANT_ID };
       vi.mocked(ProductoService.prototype.updateProducto).mockResolvedValue(mockProducto as any);
 
-      await controller.updateProducto(req as Request, res as Response);
+      await controller.updateProducto(req, res as Response);
 
       expect(ProductoService.prototype.updateProducto).toHaveBeenCalledWith('prod-1', req.body, TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(200);
@@ -128,7 +128,7 @@ describe('ProductoController', () => {
       req.params = { id: 'prod-1' };
       vi.mocked(ProductoService.prototype.updateProducto).mockResolvedValue(null);
 
-      await controller.updateProducto(req as Request, res as Response);
+      await controller.updateProducto(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(errorResponse('Producto no encontrado'));
@@ -139,7 +139,7 @@ describe('ProductoController', () => {
     it('debería retornar 400 si no se envía ningún archivo', async () => {
       req.params = { id: 'prod-1' };
 
-      await controller.uploadImage(req as Request, res as Response);
+      await controller.uploadImage(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(errorResponse('No se recibió ninguna imagen'));
@@ -152,7 +152,7 @@ describe('ProductoController', () => {
       
       vi.mocked(ProductoService.prototype.uploadImage).mockResolvedValue(null as any);
 
-      await controller.uploadImage(req as Request, res as Response);
+      await controller.uploadImage(req, res as Response);
 
       expect(ProductoService.prototype.uploadImage).toHaveBeenCalledWith('prod-1', TENANT_ID, req.file!.buffer, req.file!.mimetype);
       expect(res.status).toHaveBeenCalledWith(404);
@@ -166,7 +166,7 @@ describe('ProductoController', () => {
       
       vi.mocked(ProductoService.prototype.uploadImage).mockResolvedValue(fakeUrl);
 
-      await controller.uploadImage(req as Request, res as Response);
+      await controller.uploadImage(req, res as Response);
 
       expect(ProductoService.prototype.uploadImage).toHaveBeenCalledWith('prod-1', TENANT_ID, req.file!.buffer, req.file!.mimetype);
       expect(res.status).toHaveBeenCalledWith(200);

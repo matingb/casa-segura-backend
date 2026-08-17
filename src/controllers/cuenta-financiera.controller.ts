@@ -2,8 +2,15 @@ import { Request, Response } from 'express';
 import { CuentaFinancieraService } from '../services/cuenta-financiera.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse } from '../utils/response';
+import { TypedRequest, TypedRequestBody, TypedRequestParams } from '../types/request.types';
 
 const service = new CuentaFinancieraService();
+
+export interface CuentaFinancieraBody {
+  nombre?: string;
+  saldo_inicial?: number | string;
+  porcentaje_extra?: number | string;
+}
 
 export class CuentaFinancieraController {
   getAll = async (req: Request, res: Response): Promise<void> => {
@@ -18,10 +25,10 @@ export class CuentaFinancieraController {
     }
   };
 
-  getById = async (req: Request, res: Response): Promise<void> => {
+  getById = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const id = req.params.id as string;
+      const { id } = req.params;
       const data = await service.getById(tenantId, id);
       if (!data) {
         res.status(404).json(errorResponse('Cuenta financiera no encontrada'));
@@ -35,7 +42,7 @@ export class CuentaFinancieraController {
     }
   };
 
-  create = async (req: Request, res: Response): Promise<void> => {
+  create = async (req: TypedRequestBody<CuentaFinancieraBody>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
       const { nombre, saldo_inicial, porcentaje_extra } = req.body;
@@ -58,10 +65,13 @@ export class CuentaFinancieraController {
     }
   };
 
-  update = async (req: Request, res: Response): Promise<void> => {
+  update = async (
+    req: TypedRequest<unknown, CuentaFinancieraBody, { id: string }>,
+    res: Response
+  ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const id = req.params.id as string;
+      const { id } = req.params;
       const { nombre, saldo_inicial, porcentaje_extra } = req.body;
 
       const data = await service.update(tenantId, id, {

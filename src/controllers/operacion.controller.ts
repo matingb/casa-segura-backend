@@ -1,23 +1,33 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { OperacionService } from '../services/operacion.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
+import { TypedRequestQuery } from '../types/request.types';
 
 const service = new OperacionService();
 
+export interface OperacionesQuery {
+  limit?: string;
+  offset?: string;
+  sucursalId?: string;
+  tipoId?: string;
+}
+
 export class OperacionController {
-  getAll = async (req: Request, res: Response): Promise<void> => {
+  getAll = async (req: TypedRequestQuery<OperacionesQuery>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      if (req.query.limit === undefined) {
-        const data = await service.getAll(tenantId);
+      const { limit, offset, sucursalId, tipoId } = req.query;
+
+      if (limit === undefined) {
+        const data = await service.getAll(tenantId, sucursalId, tipoId);
         res.status(200).json({ status: 'success', data });
         return;
       }
-      const limit = normalizePaginationLimit(req.query.limit);
-      const offset = Math.max(0, Number(req.query.offset) || 0);
-      const result = await service.getPaginated(tenantId, limit, offset);
+      const normalizedLimit = normalizePaginationLimit(limit);
+      const parsedOffset = Math.max(0, Number(offset) || 0);
+      const result = await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId);
       res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';

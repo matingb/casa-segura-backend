@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    include: ['src/**/*.test.ts'],
     env: {
       SUPABASE_URL: 'http://localhost:54321',
       SUPABASE_KEY: 'test-key',

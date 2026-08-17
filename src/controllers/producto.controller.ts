@@ -1,8 +1,16 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { ProductoService } from '../services/producto.service';
+import { ProductoData } from '../repositories/producto.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
+import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
+
+export interface ProductoQuery {
+  limit?: string;
+  offset?: string;
+  search?: string;
+}
 
 export class ProductoController {
   private productoService: ProductoService;
@@ -11,18 +19,19 @@ export class ProductoController {
     this.productoService = new ProductoService();
   }
 
-  getAllProductos = async (req: Request, res: Response): Promise<void> => {
+  getAllProductos = async (req: TypedRequestQuery<ProductoQuery>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      if (req.query.limit === undefined) {
+      const { limit, offset, search } = req.query;
+
+      if (limit === undefined) {
         const productos = await this.productoService.getAllProductos(tenantId);
         res.status(200).json(successResponse(productos));
         return;
       }
-      const limit = normalizePaginationLimit(req.query.limit);
-      const offset = Math.max(0, Number(req.query.offset) || 0);
-      const search = typeof req.query.search === 'string' ? req.query.search.trim() || undefined : undefined;
-      const result = await this.productoService.getPaginated(tenantId, limit, offset, search);
+      const normalizedLimit = normalizePaginationLimit(limit);
+      const parsedOffset = Math.max(0, Number(offset) || 0);
+      const result = await this.productoService.getPaginated(tenantId, normalizedLimit, parsedOffset, search);
       res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';
@@ -31,10 +40,10 @@ export class ProductoController {
     }
   };
 
-  getProducto = async (req: Request, res: Response): Promise<void> => {
+  getProducto = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const producto = await this.productoService.getProducto(req.params.id as string, tenantId);
+      const producto = await this.productoService.getProducto(req.params.id, tenantId);
       if (!producto) {
         res.status(404).json(errorResponse('Producto no encontrado'));
         return;
@@ -47,7 +56,10 @@ export class ProductoController {
     }
   };
 
-  createProducto = async (req: Request, res: Response): Promise<void> => {
+  createProducto = async (
+    req: TypedRequestBody<Omit<ProductoData, 'tenant_id'>>,
+    res: Response
+  ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
       const producto = await this.productoService.createProducto(req.body, tenantId);
@@ -59,11 +71,14 @@ export class ProductoController {
     }
   };
 
-  updateProducto = async (req: Request, res: Response): Promise<void> => {
+  updateProducto = async (
+    req: TypedRequest<unknown, Partial<ProductoData>, { id: string }>,
+    res: Response
+  ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
       const producto = await this.productoService.updateProducto(
-        req.params.id as string,
+        req.params.id,
         req.body,
         tenantId
       );
@@ -79,11 +94,10 @@ export class ProductoController {
     }
   };
 
-
-  uploadImage = async (req: Request, res: Response): Promise<void> => {
+  uploadImage = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const id = req.params.id as string;
+      const id = req.params.id;
 
       if (!req.file) {
         res.status(400).json(errorResponse('No se recibió ninguna imagen'));
