@@ -3,7 +3,7 @@ import { OperacionService } from '../services/operacion.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
-import { TypedRequestQuery } from '../types/request.types';
+import { TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new OperacionService();
 
@@ -35,4 +35,22 @@ export class OperacionController {
       res.status(500).json(errorResponse(message));
     }
   };
+
+  getById = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const { id } = req.params;
+      const data = await service.getById(tenantId, id);
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json({ status: 'success', data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.getById:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
 }
+

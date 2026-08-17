@@ -10,4 +10,9 @@ export class OperacionService {
   async getPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string) {
     return this.repo.findPaginated(tenantId, limit, offset, sucursalId, tipoId);
   }
+
+  async getById(tenantId: string, id: string) {
+    return this.repo.findById(tenantId, id);
+  }
 }
+

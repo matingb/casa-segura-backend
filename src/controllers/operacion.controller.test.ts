@@ -93,4 +93,45 @@ describe('OperacionController', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'DB failure' });
   });
+
+  describe('getById', () => {
+
+    it('debería retornar 200 con la operación encontrada', async () => {
+      const mockOp = {
+        id: 'op-1',
+        tipo_nombre: 'Venta',
+        items: [{ id: 'item-1', producto_nombre: 'Cámara', cantidad: 2 }],
+        cuentas: [{ id: 'oc-1', cuenta_nombre: 'Efectivo', porcentaje_venta: 100 }],
+      };
+      vi.mocked(OperacionService.prototype.getById).mockResolvedValue(mockOp as any);
+      req.params = { id: 'op-1' };
+
+      await controller.getById(req, res as Response);
+
+      expect(OperacionService.prototype.getById).toHaveBeenCalledWith(TENANT_ID, 'op-1');
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ status: 'success', data: mockOp });
+    });
+
+    it('debería retornar 404 si la operación no existe', async () => {
+      vi.mocked(OperacionService.prototype.getById).mockResolvedValue(null as any);
+      req.params = { id: 'op-999' };
+
+      await controller.getById(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Operación no encontrada' });
+    });
+
+    it('debería responder con 500 ante un error en getById', async () => {
+      vi.mocked(OperacionService.prototype.getById).mockRejectedValue(new Error('DB Error'));
+      req.params = { id: 'op-1' };
+
+      await controller.getById(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'DB Error' });
+    });
+  });
 });
+
