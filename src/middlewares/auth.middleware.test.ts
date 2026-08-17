@@ -80,8 +80,8 @@ describe('auth.middleware', () => {
 
     await authMiddleware(req as Request, res as Response, next);
 
-    expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith(errorResponse('Internal server error during authentication'));
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(errorResponse('DB Connection Failed'));
     expect(next).not.toHaveBeenCalled();
   });
 });

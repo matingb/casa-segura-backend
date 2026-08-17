@@ -12,6 +12,10 @@ export class ProductoService {
     return this.productoRepository.findAll(tenantId);
   }
 
+  async getPaginated(tenantId: string, limit: number, offset: number, search?: string) {
+    return this.productoRepository.findPaginated(tenantId, limit, offset, search);
+  }
+
   async getProducto(id: string, tenantId: string) {
     return this.productoRepository.findById(id, tenantId);
   }

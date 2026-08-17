@@ -21,7 +21,7 @@ export class CuentaFinancieraController {
   getById = async (req: Request, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const { id } = req.params;
+      const id = req.params.id as string;
       const data = await service.getById(tenantId, id);
       if (!data) {
         res.status(404).json(errorResponse('Cuenta financiera no encontrada'));
@@ -61,7 +61,7 @@ export class CuentaFinancieraController {
   update = async (req: Request, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const { id } = req.params;
+      const id = req.params.id as string;
       const { nombre, saldo_inicial, porcentaje_extra } = req.body;
 
       const data = await service.update(tenantId, id, {

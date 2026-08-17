@@ -1,4 +1,5 @@
 import { pool } from '../config/db';
+import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 
 export interface ProductoData {
   tenant_id: string;
@@ -27,6 +28,25 @@ export class ProductoRepository {
       [tenantId]
     );
     return rows;
+  }
+
+  async findPaginated(tenantId: string, limit: number, offset: number, search?: string) {
+    const sentinel = getLimitSentinel(limit);
+    const params: unknown[] = [tenantId, sentinel, offset];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const idx = params.length;
+      searchClause = `AND (nombre ILIKE $${idx} OR codigo ILIKE $${idx} OR marca ILIKE $${idx} OR modelo ILIKE $${idx})`;
+    }
+    const { rows } = await pool.query(
+      `SELECT * FROM public.producto
+       WHERE tenant_id = $1 ${searchClause}
+       ORDER BY nombre
+       LIMIT $2 OFFSET $3`,
+      params
+    );
+    return sliceWithHasMore(rows, limit);
   }
 
   async findById(id: string, tenantId: string) {

@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { ProductoService } from '../services/producto.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
-import { errorResponse, successResponse } from '../utils/response';
+import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
+import { normalizePaginationLimit } from '../utils/pagination';
 
 export class ProductoController {
   private productoService: ProductoService;
@@ -13,8 +14,16 @@ export class ProductoController {
   getAllProductos = async (req: Request, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const productos = await this.productoService.getAllProductos(tenantId);
-      res.status(200).json(successResponse(productos));
+      if (req.query.limit === undefined) {
+        const productos = await this.productoService.getAllProductos(tenantId);
+        res.status(200).json(successResponse(productos));
+        return;
+      }
+      const limit = normalizePaginationLimit(req.query.limit);
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const search = typeof req.query.search === 'string' ? req.query.search.trim() || undefined : undefined;
+      const result = await this.productoService.getPaginated(tenantId, limit, offset, search);
+      res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ProductoController] getAllProductos:', error);

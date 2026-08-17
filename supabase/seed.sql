@@ -357,3 +357,217 @@ VALUES (
     'pendiente',
     'manual'
 );
+
+-- =============================================================================
+-- 16. GENERACIÓN MASIVA DE DATOS PARA PRUEBAS DE PAGINACIÓN Y SCROLL (> 50 items)
+-- =============================================================================
+DO $$
+DECLARE
+    v_tenant_id UUID := '00000000-0000-0000-0000-000000000001';
+    v_subtipo_ext UUID := '00000000-0000-0000-0000-000000000070'; -- Cámaras Exterior
+    v_subtipo_dvr UUID := '00000000-0000-0000-0000-000000000071'; -- DVR / NVR
+    v_subtipo_sen UUID := '00000000-0000-0000-0000-000000000072'; -- Sensores
+    v_subtipo_sir UUID := '00000000-0000-0000-0000-000000000073'; -- Sirenas
+    
+    v_suc_central UUID := '00000000-0000-0000-0000-000000000020';
+    v_suc_norte   UUID := '00000000-0000-0000-0000-000000000021';
+    
+    v_prov_dahua  UUID := '00000000-0000-0000-0000-000000000050';
+    v_prov_hik    UUID := '00000000-0000-0000-0000-000000000051';
+    v_prov_tech   UUID := '00000000-0000-0000-0000-000000000052';
+    
+    v_cta_efectivo UUID := '00000000-0000-0000-0000-0000000000A0';
+    v_cta_transf   UUID := '00000000-0000-0000-0000-0000000000A1';
+    
+    v_tipo_compra  UUID := '00000000-0000-0000-0000-0000000000B0';
+    v_tipo_venta   UUID := '00000000-0000-0000-0000-0000000000B1';
+    
+    v_us_matias_c  UUID := '00000000-0000-0000-0000-0000000000C0';
+    v_us_nacho_c   UUID := '00000000-0000-0000-0000-0000000000C2';
+    v_us_dona_n    UUID := '00000000-0000-0000-0000-0000000000C3';
+    v_user_dona    UUID := '00000000-0000-0000-0000-000000000012';
+    
+    v_prod_id UUID;
+    v_ps_central_id UUID;
+    v_ps_norte_id UUID;
+    v_op_id UUID;
+    v_i INT;
+    v_subtipo UUID;
+    v_marca TEXT;
+    v_nombre TEXT;
+    v_modelo TEXT;
+    v_costo DECIMAL;
+    v_precio DECIMAL;
+    v_subtipos UUID[] := ARRAY[v_subtipo_ext, v_subtipo_dvr, v_subtipo_sen, v_subtipo_sir];
+    v_marcas TEXT[] := ARRAY['Dahua', 'Hikvision', 'DSC', 'Alonso', 'Ezviz', 'Intelbras', 'Ubiquiti', 'Western Digital', 'TP-Link', 'Seagate'];
+    v_nombres TEXT[] := ARRAY[
+        'Cámara Domo HD', 'Cámara Bullet 4K', 'Cámara PTZ 360', 'Cámara Solar Wi-Fi',
+        'NVR 8 Canales', 'NVR 16 Canales PoE', 'DVR 8 Canales HD', 'DVR 16 Canales 4K',
+        'Sensor Movimiento Inalámbrico', 'Sensor Magnético Puerta', 'Barrera Infrarroja 60m', 'Sensor de Humo Óptico',
+        'Sirena Exterior con Flash', 'Sirena Inalámbrica 120dB', 'Teclado LCD Alarma', 'Central de Alarma 8 Zonas',
+        'Fuente Regulada 12V 5A', 'Balun Pasivo HD', 'Bobina Cable UTP Cat6 305m', 'Conector BNC con Tornillo'
+    ];
+BEGIN
+    -- Generar 70 productos adicionales (PROD-006 a PROD-075)
+    FOR v_i IN 6..75 LOOP
+        v_subtipo := v_subtipos[1 + ((v_i - 1) % 4)];
+        v_marca := v_marcas[1 + ((v_i - 1) % 10)];
+        v_nombre := v_nombres[1 + ((v_i - 1) % 20)] || ' Mod. ' || v_i;
+        v_modelo := 'MD-' || (1000 + v_i);
+        v_costo := 5000 + (v_i * 850);
+        v_precio := v_costo * 1.55;
+
+        INSERT INTO public.producto (
+            tenant_id, subtipo_id, codigo, nombre, marca, modelo, descripcion, activo
+        ) VALUES (
+            v_tenant_id,
+            v_subtipo,
+            'PROD-' || LPAD(v_i::TEXT, 3, '0'),
+            v_nombre,
+            v_marca,
+            v_modelo,
+            'Descripción detallada para ' || v_nombre || ' de marca ' || v_marca,
+            (v_i % 7 != 0)
+        ) RETURNING id INTO v_prod_id;
+
+        -- Stock en Casa Central
+        INSERT INTO public.producto_sucursal (
+            producto_id, sucursal_id, habilitado, costo_reposicion, precio_venta_ars, precio_venta_usd,
+            iva, margen_minimo, stock_minimo, cantidad_disponible, cantidad_reservada
+        ) VALUES (
+            v_prod_id,
+            v_suc_central,
+            TRUE,
+            v_costo,
+            v_precio,
+            ROUND(v_precio / 1200.0, 2),
+            21,
+            20,
+            5,
+            (v_i * 3) % 45,
+            v_i % 4
+        ) RETURNING id INTO v_ps_central_id;
+
+        -- Stock en Sucursal Norte
+        INSERT INTO public.producto_sucursal (
+            producto_id, sucursal_id, habilitado, costo_reposicion, precio_venta_ars, precio_venta_usd,
+            iva, margen_minimo, stock_minimo, cantidad_disponible, cantidad_reservada
+        ) VALUES (
+            v_prod_id,
+            v_suc_norte,
+            TRUE,
+            v_costo,
+            v_precio * 1.05,
+            ROUND((v_precio * 1.05) / 1200.0, 2),
+            21,
+            20,
+            3,
+            (v_i * 2) % 30,
+            0
+        ) RETURNING id INTO v_ps_norte_id;
+
+        -- Generar pedidos de reposición asociados
+        IF (v_i % 2 = 0) THEN
+            INSERT INTO public.pedido_reposicion (
+                tenant_id, producto_sucursal_id, usuario_id, proveedor_id, cantidad, estado, origen, fecha
+            ) VALUES (
+                v_tenant_id,
+                CASE WHEN v_i % 4 = 0 THEN v_ps_central_id ELSE v_ps_norte_id END,
+                v_user_dona,
+                CASE (v_i % 3) WHEN 0 THEN v_prov_dahua WHEN 1 THEN v_prov_hik ELSE v_prov_tech END,
+                10 + (v_i % 25),
+                CASE (v_i % 4) WHEN 0 THEN 'pendiente' WHEN 1 THEN 'aprobado' WHEN 2 THEN 'en_camino' ELSE 'recibido' END,
+                CASE WHEN v_i % 3 = 0 THEN 'automatico' ELSE 'manual' END,
+                NOW() - (v_i || ' days')::INTERVAL
+            );
+        END IF;
+
+        -- Generar operaciones (ventas y compras)
+        IF (v_i <= 65) THEN
+            IF (v_i % 2 = 1) THEN
+                -- VENTA
+                INSERT INTO public.operacion (
+                    tenant_id, usuario_sucursal_id, tipo_id, fecha
+                ) VALUES (
+                    v_tenant_id,
+                    CASE WHEN v_i % 3 = 0 THEN v_us_dona_n ELSE v_us_nacho_c END,
+                    v_tipo_venta,
+                    NOW() - (v_i || ' days')::INTERVAL
+                ) RETURNING id INTO v_op_id;
+
+                INSERT INTO public.operacion_detalle (
+                    operacion_id, producto_sucursal_id, cantidad, alicuota_iva, iva_ars, precio_unit_ars, costo_unit_ars
+                ) VALUES (
+                    v_op_id,
+                    v_ps_central_id,
+                    2,
+                    21,
+                    v_precio * 2 * 0.21,
+                    v_precio,
+                    v_costo
+                );
+
+                INSERT INTO public.venta (
+                    operacion_id, numero_comprobante, subtotal_ars, total_ars
+                ) VALUES (
+                    v_op_id,
+                    'B-0001-' || LPAD((1000 + v_i)::TEXT, 8, '0'),
+                    v_precio * 2,
+                    v_precio * 2 * 1.21
+                );
+
+                INSERT INTO public.operacion_cuenta (
+                    operacion_id, cuenta_financiera_id, porcentaje_venta, monto_ars
+                ) VALUES (
+                    v_op_id,
+                    CASE WHEN v_i % 2 = 0 THEN v_cta_efectivo ELSE v_cta_transf END,
+                    100,
+                    v_precio * 2 * 1.21
+                );
+            ELSE
+                -- COMPRA
+                INSERT INTO public.operacion (
+                    tenant_id, usuario_sucursal_id, tipo_id, fecha
+                ) VALUES (
+                    v_tenant_id,
+                    v_us_matias_c,
+                    v_tipo_compra,
+                    NOW() - (v_i || ' days')::INTERVAL
+                ) RETURNING id INTO v_op_id;
+
+                INSERT INTO public.operacion_detalle (
+                    operacion_id, producto_sucursal_id, cantidad, alicuota_iva, iva_ars, precio_unit_ars, costo_unit_ars
+                ) VALUES (
+                    v_op_id,
+                    v_ps_central_id,
+                    10,
+                    21,
+                    v_costo * 10 * 0.21,
+                    v_costo,
+                    v_costo
+                );
+
+                INSERT INTO public.compra (
+                    operacion_id, proveedor_id, numero_remito, numero_factura, subtotal_ars, total_ars
+                ) VALUES (
+                    v_op_id,
+                    CASE (v_i % 3) WHEN 0 THEN v_prov_dahua WHEN 1 THEN v_prov_hik ELSE v_prov_tech END,
+                    'R-2026-' || LPAD(v_i::TEXT, 3, '0'),
+                    'A-0001-' || LPAD((10000 + v_i)::TEXT, 8, '0'),
+                    v_costo * 10,
+                    v_costo * 10 * 1.21
+                );
+
+                INSERT INTO public.operacion_cuenta (
+                    operacion_id, cuenta_financiera_id, porcentaje_venta, monto_ars
+                ) VALUES (
+                    v_op_id,
+                    v_cta_transf,
+                    100,
+                    v_costo * 10 * 1.21
+                );
+            END IF;
+        END IF;
+    END LOOP;
+END $$;
+

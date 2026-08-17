@@ -7,6 +7,10 @@ export class ProductoSucursalService {
     return this.repo.findAll(tenantId);
   }
 
+  async getPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string) {
+    return this.repo.findPaginated(tenantId, limit, offset, search, sucursalId);
+  }
+
   async getById(id: string, tenantId: string) {
     return this.repo.findById(id, tenantId);
   }

@@ -9,7 +9,8 @@ vi.mock('../services/producto.service');
 vi.mock('../utils/tenant');
 vi.mock('../utils/response', () => ({
   errorResponse: vi.fn((msg) => ({ error: msg })),
-  successResponse: vi.fn((data) => ({ data }))
+  successResponse: vi.fn((data) => ({ data })),
+  paginatedResponse: vi.fn((items, hasMore) => ({ status: 'success', data: items, page: { hasMore } })),
 }));
 
 describe('ProductoController', () => {
@@ -25,6 +26,7 @@ describe('ProductoController', () => {
       user: { id: AUTH_ID } as any,
       params: {},
       body: {},
+      query: {},
     };
     res = {
       status: vi.fn().mockReturnThis(),
@@ -34,7 +36,7 @@ describe('ProductoController', () => {
   });
 
   describe('getAllProductos', () => {
-    it('debería retornar 200 y la lista de productos del tenant', async () => {
+    it('sin ?limit: debería retornar 200 y la lista completa de productos del tenant', async () => {
       const mockProductos = [{ id: '1', nombre: 'Prod 1' }];
       vi.mocked(ProductoService.prototype.getAllProductos).mockResolvedValue(mockProductos as any);
 
@@ -44,6 +46,29 @@ describe('ProductoController', () => {
       expect(ProductoService.prototype.getAllProductos).toHaveBeenCalledWith(TENANT_ID);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockProductos));
+    });
+
+    it('con ?limit y ?offset: debería retornar 200 con datos paginados y page.hasMore', async () => {
+      req.query = { limit: '2', offset: '0' };
+      const mockItems = [{ id: '1', nombre: 'Prod 1' }, { id: '2', nombre: 'Prod 2' }];
+      vi.mocked(ProductoService.prototype.getPaginated).mockResolvedValue({ items: mockItems as any, hasMore: true });
+
+      await controller.getAllProductos(req as Request, res as Response);
+
+      expect(ProductoService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 2, 0, undefined);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ status: 'success', data: mockItems, page: { hasMore: true } });
+    });
+
+    it('con ?search: debería pasar el texto de búsqueda al service', async () => {
+      req.query = { limit: '5', offset: '0', search: 'camara' };
+      const mockItems = [{ id: '1', nombre: 'Cámara Dahua' }];
+      vi.mocked(ProductoService.prototype.getPaginated).mockResolvedValue({ items: mockItems as any, hasMore: false });
+
+      await controller.getAllProductos(req as Request, res as Response);
+
+      expect(ProductoService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 5, 0, 'camara');
+      expect(res.status).toHaveBeenCalledWith(200);
     });
   });
 

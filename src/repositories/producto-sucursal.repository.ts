@@ -1,4 +1,5 @@
 import { pool } from '../config/db';
+import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 
 const JOIN_QUERY = `
   SELECT ps.*,
@@ -36,6 +37,31 @@ export class ProductoSucursalRepository {
     `;
     const { rows } = await pool.query(query, [tenantId]);
     return rows;
+  }
+
+  async findPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string) {
+    const sentinel = getLimitSentinel(limit);
+    const params: unknown[] = [tenantId, sentinel, offset];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const idx = params.length;
+      searchClause = `AND (p.nombre ILIKE $${idx} OR p.codigo ILIKE $${idx} OR p.marca ILIKE $${idx} OR p.modelo ILIKE $${idx})`;
+    }
+    let sucursalClause = '';
+    if (sucursalId) {
+      params.push(sucursalId);
+      const idx = params.length;
+      sucursalClause = `AND ps.sucursal_id = $${idx}`;
+    }
+    const { rows } = await pool.query(
+      `${JOIN_QUERY}
+       WHERE p.tenant_id = $1 ${searchClause} ${sucursalClause}
+       ORDER BY s.nombre, p.nombre
+       LIMIT $2 OFFSET $3`,
+      params
+    );
+    return sliceWithHasMore(rows, limit);
   }
 
   async findById(id: string, tenantId: string) {

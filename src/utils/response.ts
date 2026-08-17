@@ -5,3 +5,7 @@ export function successResponse<T>(data: T) {
 export function errorResponse(message: string) {
   return { status: 'error' as const, message };
 }
+
+export function paginatedResponse<T>(items: T[], hasMore: boolean) {
+  return { status: 'success' as const, data: items, page: { hasMore } };
+}
