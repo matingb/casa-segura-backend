@@ -6,10 +6,11 @@ import { errorResponse } from '../utils/response';
 const service = new SucursalService();
 
 export class SucursalController {
-  getAll = async (req: Request, res: Response): Promise<void> => {
+  getAllByUser = async (req: Request, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const data = await service.getAll(tenantId);
+      const authId = req.user!.id;
+      const tenantId = await getTenantIdByAuthId(authId);
+      const data = await service.getByUser(authId, tenantId);
       res.status(200).json({ status: 'success', data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';

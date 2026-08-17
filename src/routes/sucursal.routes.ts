@@ -5,6 +5,6 @@ import { authMiddleware } from '../middlewares/auth.middleware';
 const router = Router();
 const controller = new SucursalController();
 
-router.get('/', authMiddleware, controller.getAll);
+router.get('/', authMiddleware, controller.getAllByUser);
 
 export default router;
