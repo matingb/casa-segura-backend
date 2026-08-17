@@ -26,4 +26,9 @@ export class CuentaFinancieraService {
   }) {
     return repo.update(tenantId, id, data);
   }
+
+  async getMovimientos(tenantId: string, id: string) {
+    return repo.findMovimientos(tenantId, id);
+  }
 }
+

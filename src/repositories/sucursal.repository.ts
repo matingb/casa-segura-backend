@@ -11,10 +11,8 @@ export class SucursalRepository {
     const query = `
       SELECT s.id,
              s.nombre,
-             s.direccion,
              s.es_central,
              s.valor_dolar,
-             s.activo,
              us.id AS usuario_sucursal_id,
              us.id_rol,
              r.nombre AS rol_nombre
@@ -24,11 +22,11 @@ export class SucursalRepository {
       JOIN public.rol r               ON r.id = us.id_rol
       WHERE u.auth_id = $1
         AND s.tenant_id = $2
-        AND s.activo = TRUE
       ORDER BY s.es_central DESC, s.nombre
     `;
     const { rows } = await pool.query(query, [authId, tenantId]);
     return rows;
   }
+
 }
 
