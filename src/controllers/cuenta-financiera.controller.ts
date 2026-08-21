@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import { CuentaFinancieraService } from '../services/cuenta-financiera.service';
+import { CuentaFinancieraFiltros } from '../repositories/cuenta-financiera.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
-import { errorResponse } from '../utils/response';
-import { TypedRequest, TypedRequestBody, TypedRequestParams } from '../types/request.types';
+import { errorResponse, successResponse } from '../utils/response';
+import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new CuentaFinancieraService();
 
@@ -12,15 +13,51 @@ export interface CuentaFinancieraBody {
   porcentaje_extra?: number | string;
 }
 
+export interface CuentaFinancieraQuery {
+  sortBy?: string;
+  sortDir?: string;
+  filtro_nombre?: string;
+}
+
+export interface ValoresUnicosQuery {
+  campo?: string;
+}
+
 export class CuentaFinancieraController {
-  getAll = async (req: Request, res: Response): Promise<void> => {
+  getAll = async (req: TypedRequestQuery<CuentaFinancieraQuery>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const { sortBy, sortDir, filtro_nombre } = req.query ?? {};
+
+      if (sortBy || sortDir || filtro_nombre) {
+        const filtros: CuentaFinancieraFiltros = { nombre: filtro_nombre };
+        const data = await service.getAllFiltradas(tenantId, filtros, sortBy, sortDir);
+        res.status(200).json({ status: 'success', data });
+        return;
+      }
+
       const data = await service.getAll(tenantId);
       res.status(200).json({ status: 'success', data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in CuentaFinancieraController.getAll:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  getValoresUnicos = async (req: TypedRequestQuery<ValoresUnicosQuery>, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const { campo } = req.query;
+      if (!campo) {
+        res.status(400).json(errorResponse('El parámetro "campo" es requerido'));
+        return;
+      }
+      const valores = await service.getValoresUnicos(tenantId, campo);
+      res.status(200).json(successResponse(valores));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in CuentaFinancieraController.getValoresUnicos:', error);
       res.status(500).json(errorResponse(message));
     }
   };

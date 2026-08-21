@@ -1,4 +1,4 @@
-import { ProductoRepository, ProductoData } from '../repositories/producto.repository';
+import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositories/producto.repository';
 import { uploadProductImage, getPublicUrl } from './storage.service';
 
 export class ProductoService {
@@ -14,6 +14,22 @@ export class ProductoService {
 
   async getPaginated(tenantId: string, limit: number, offset: number, search?: string) {
     return this.productoRepository.findPaginated(tenantId, limit, offset, search);
+  }
+
+  async getPaginatedWithTotal(
+    tenantId: string,
+    limit: number,
+    offset: number,
+    search?: string,
+    filtros?: ProductoFiltros,
+    sortBy?: string,
+    sortDir?: string
+  ) {
+    return this.productoRepository.findPaginatedWithTotal(tenantId, limit, offset, search, filtros, sortBy, sortDir);
+  }
+
+  async getValoresUnicos(tenantId: string, campo: string) {
+    return this.productoRepository.findValoresUnicos(tenantId, campo);
   }
 
   async getProducto(id: string, tenantId: string) {

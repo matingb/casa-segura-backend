@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { OperacionController } from './operacion.controller';
 import { OperacionService } from '../services/operacion.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
+import { BusinessError } from '../utils/errors';
 
 vi.mock('../services/operacion.service');
 vi.mock('../utils/tenant');
@@ -131,6 +132,231 @@ describe('OperacionController', () => {
 
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'DB Error' });
+    });
+  });
+
+  describe('create', () => {
+    const baseVenta = {
+      tipo: 'venta',
+      sucursal_id: 's-1',
+      items: [{ producto_sucursal_id: 'ps-1', cantidad: 2 }],
+      cuentas: [{ cuenta_financiera_id: 'cf-1', monto_ars: 1000 }],
+      venta: { total_ars: 1000 },
+    };
+
+    it('debería crear una venta y retornar 201', async () => {
+      const mockCreada = { id: 'op-1', tipo_nombre: 'Venta' };
+      vi.mocked(OperacionService.prototype.crear).mockResolvedValue(mockCreada as any);
+
+      req.body = baseVenta;
+      await controller.create(req, res as Response);
+
+      // El controller normaliza el modo de reparto antes de delegar al service.
+      expect(OperacionService.prototype.crear).toHaveBeenCalledWith(TENANT_ID, AUTH_ID, {
+        ...baseVenta,
+        modo_reparto: 'monto',
+      });
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith({ status: 'success', data: mockCreada });
+    });
+
+    it('debería crear una compra válida', async () => {
+      const mockCreada = { id: 'op-2', tipo_nombre: 'Compra' };
+      vi.mocked(OperacionService.prototype.crear).mockResolvedValue(mockCreada as any);
+
+      req.body = {
+        tipo: 'compra',
+        sucursal_id: 's-1',
+        items: [{ producto_sucursal_id: 'ps-1', cantidad: 5 }],
+        compra: { proveedor_id: 'prov-1' },
+      };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('debería crear un traslado válido', async () => {
+      const mockCreada = { id: 'op-3', tipo_nombre: 'Traslado' };
+      vi.mocked(OperacionService.prototype.crear).mockResolvedValue(mockCreada as any);
+
+      req.body = {
+        tipo: 'traslado',
+        sucursal_id: 's-1',
+        items: [{ producto_sucursal_id: 'ps-1', cantidad: 3 }],
+        traslado: { sucursal_destino_id: 's-2' },
+      };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('debería crear un movimiento válido', async () => {
+      const mockCreada = { id: 'op-4', tipo_nombre: 'Movimiento' };
+      vi.mocked(OperacionService.prototype.crear).mockResolvedValue(mockCreada as any);
+
+      req.body = {
+        tipo: 'movimiento',
+        sucursal_id: 's-1',
+        movimiento: { tipo: 'ingreso', monto_ars: 500 },
+        cuentas: [{ cuenta_financiera_id: 'cf-1', monto_ars: 500 }],
+      };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('debería retornar 400 si falta el campo tipo', async () => {
+      req.body = { sucursal_id: 's-1' };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('debería retornar 400 si falta sucursal_id', async () => {
+      req.body = { tipo: 'venta' };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('debería retornar 400 si items está vacío en una venta', async () => {
+      req.body = { tipo: 'venta', sucursal_id: 's-1', items: [] };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('debería retornar 400 si falta compra.proveedor_id', async () => {
+      req.body = {
+        tipo: 'compra',
+        sucursal_id: 's-1',
+        items: [{ producto_sucursal_id: 'ps-1', cantidad: 1 }],
+        compra: {},
+      };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('debería retornar 400 si sucursal_destino_id es igual a sucursal_id en traslado', async () => {
+      req.body = {
+        tipo: 'traslado',
+        sucursal_id: 's-1',
+        items: [{ producto_sucursal_id: 'ps-1', cantidad: 1 }],
+        traslado: { sucursal_destino_id: 's-1' },
+      };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('debería retornar 400 si falta cuentas en movimiento', async () => {
+      req.body = {
+        tipo: 'movimiento',
+        sucursal_id: 's-1',
+        movimiento: { tipo: 'ingreso', monto_ars: 500 },
+      };
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it('debería retornar 400 ante un BusinessError (ej. stock insuficiente)', async () => {
+      vi.mocked(OperacionService.prototype.crear).mockRejectedValue(new BusinessError('Stock insuficiente para Cámara'));
+
+      req.body = baseVenta;
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Stock insuficiente para Cámara' });
+    });
+
+    it('debería retornar 500 ante un error genérico', async () => {
+      vi.mocked(OperacionService.prototype.crear).mockRejectedValue(new Error('DB Error'));
+
+      req.body = baseVenta;
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'DB Error' });
+    });
+
+    describe('reparto entre cuentas', () => {
+      it('debería retornar 400 si modo_reparto no es válido', async () => {
+        req.body = { ...baseVenta, modo_reparto: 'mitades' };
+        await controller.create(req, res as Response);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+
+      it('debería retornar 400 si en modo porcentaje falta porcentaje_venta', async () => {
+        req.body = {
+          ...baseVenta,
+          modo_reparto: 'porcentaje',
+          cuentas: [{ cuenta_financiera_id: 'cf-1', monto_ars: 1000 }],
+        };
+        await controller.create(req, res as Response);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+
+      it('debería retornar 400 si en modo monto falta monto_ars', async () => {
+        req.body = {
+          ...baseVenta,
+          modo_reparto: 'monto',
+          cuentas: [{ cuenta_financiera_id: 'cf-1', porcentaje_venta: 100 }],
+        };
+        await controller.create(req, res as Response);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
+
+      it('debería aceptar el reparto por porcentaje y propagar el modo al service', async () => {
+        vi.mocked(OperacionService.prototype.crear).mockResolvedValue({ id: 'op-9' } as any);
+
+        req.body = {
+          ...baseVenta,
+          modo_reparto: 'porcentaje',
+          cuentas: [
+            { cuenta_financiera_id: 'cf-1', porcentaje_venta: 50 },
+            { cuenta_financiera_id: 'cf-2', porcentaje_venta: 50 },
+          ],
+        };
+        await controller.create(req, res as Response);
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(OperacionService.prototype.crear).toHaveBeenCalledWith(
+          TENANT_ID,
+          AUTH_ID,
+          expect.objectContaining({ modo_reparto: 'porcentaje' })
+        );
+      });
+
+      it('los movimientos siempre reparten por monto, sin exigir monto_ars suelto', async () => {
+        vi.mocked(OperacionService.prototype.crear).mockResolvedValue({ id: 'op-10' } as any);
+
+        req.body = {
+          tipo: 'movimiento',
+          sucursal_id: 's-1',
+          movimiento: { tipo: 'ingreso' },
+          cuentas: [{ cuenta_financiera_id: 'cf-1', monto_ars: 500 }],
+        };
+        await controller.create(req, res as Response);
+
+        expect(res.status).toHaveBeenCalledWith(201);
+        expect(OperacionService.prototype.crear).toHaveBeenCalledWith(
+          TENANT_ID,
+          AUTH_ID,
+          expect.objectContaining({ modo_reparto: 'monto' })
+        );
+      });
+
+      it('debería retornar 400 si una cuenta viene sin cuenta_financiera_id', async () => {
+        req.body = { ...baseVenta, cuentas: [{ monto_ars: 1000 }] };
+        await controller.create(req, res as Response);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+      });
     });
   });
 });

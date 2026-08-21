@@ -70,6 +70,39 @@ describe('ProductoController', () => {
       expect(ProductoService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 5, 0, 'camara');
       expect(res.status).toHaveBeenCalledWith(200);
     });
+
+    it('con ?page: debería retornar 200 con total y totalPages calculados', async () => {
+      req.query = { page: '2', limit: '10' };
+      const mockItems = [{ id: '1', nombre: 'Prod 1' }];
+      vi.mocked(ProductoService.prototype.getPaginatedWithTotal).mockResolvedValue({ items: mockItems as any, total: 25 });
+
+      await controller.getAllProductos(req, res as Response);
+
+      expect(ProductoService.prototype.getPaginatedWithTotal).toHaveBeenCalledWith(
+        TENANT_ID, 10, 10, undefined,
+        { codigo: undefined, nombre: undefined, marca: undefined, modelo: undefined, subtipo: undefined, estado: undefined },
+        undefined, undefined
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'success',
+        data: mockItems,
+        page: { page: 2, limit: 10, total: 25, totalPages: 3 },
+      });
+    });
+
+    it('con ?page sin ?limit: debería usar el límite por defecto', async () => {
+      req.query = { page: '1' };
+      vi.mocked(ProductoService.prototype.getPaginatedWithTotal).mockResolvedValue({ items: [], total: 0 });
+
+      await controller.getAllProductos(req, res as Response);
+
+      expect(ProductoService.prototype.getPaginatedWithTotal).toHaveBeenCalledWith(
+        TENANT_ID, 50, 0, undefined,
+        { codigo: undefined, nombre: undefined, marca: undefined, modelo: undefined, subtipo: undefined, estado: undefined },
+        undefined, undefined
+      );
+    });
   });
 
   describe('getProducto', () => {

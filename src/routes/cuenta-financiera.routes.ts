@@ -6,6 +6,7 @@ const router = Router();
 const controller = new CuentaFinancieraController();
 
 router.get('/',                 authMiddleware, controller.getAll);
+router.get('/valores-unicos',   authMiddleware, controller.getValoresUnicos);
 router.get('/:id',              authMiddleware, controller.getById);
 router.get('/:id/movimientos',  authMiddleware, controller.getMovimientos);
 router.post('/',                authMiddleware, controller.create);

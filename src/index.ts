@@ -17,6 +17,7 @@ import usuarioSucursalRoutes from './routes/usuario-sucursal.routes';
 import productoSucursalRoutes from './routes/producto-sucursal.routes';
 import operacionRoutes       from './routes/operacion.routes';
 import pedidoReposicionRoutes from './routes/pedido-reposicion.routes';
+import tipoOperacionRoutes   from './routes/tipo-operacion.routes';
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -43,6 +44,7 @@ app.use('/api/usuarios-sucursal',  usuarioSucursalRoutes);
 app.use('/api/producto-sucursal',  productoSucursalRoutes);
 app.use('/api/operaciones',        operacionRoutes);
 app.use('/api/pedidos-reposicion', pedidoReposicionRoutes);
+app.use('/api/tipos-operacion',    tipoOperacionRoutes);
 
 app.listen(port, () => {
   console.log(`[server]: Server is running at http://localhost:${port}`);

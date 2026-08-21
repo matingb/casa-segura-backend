@@ -1,10 +1,58 @@
 import { pool } from '../config/db';
+import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
+
+export interface CuentaFinancieraFiltros {
+  nombre?: string;
+}
+
+const SORTABLE_COLUMNS: Record<string, string> = {
+  nombre: 'nombre',
+  saldoInicial: 'saldo_inicial',
+  saldoActual: 'saldo_actual',
+  porcentajeExtra: 'porcentaje_extra',
+};
 
 export class CuentaFinancieraRepository {
   async findAll(tenantId: string) {
     const query = 'SELECT * FROM public.cuenta_financiera WHERE tenant_id = $1 ORDER BY nombre';
     const { rows } = await pool.query(query, [tenantId]);
     return rows;
+  }
+
+  async findAllFiltradas(tenantId: string, filtros?: CuentaFinancieraFiltros, sortBy?: string, sortDir?: string) {
+    const params: unknown[] = [tenantId];
+    const filterClauses: string[] = [];
+    if (filtros?.nombre) {
+      params.push(`%${filtros.nombre}%`);
+      filterClauses.push(`nombre ILIKE $${params.length}`);
+    }
+    const filtersSql = filterClauses.length ? `AND ${filterClauses.join(' AND ')}` : '';
+    const orderBy = buildMultiOrderByClause(parseSortParam(sortBy, sortDir), SORTABLE_COLUMNS, 'nombre ASC');
+
+    const query = `
+      SELECT * FROM public.cuenta_financiera
+      WHERE tenant_id = $1 ${filtersSql}
+      ORDER BY ${orderBy}
+    `;
+    const { rows } = await pool.query(query, params);
+    return rows;
+  }
+
+  async findValoresUnicos(tenantId: string, campo: string): Promise<string[]> {
+    const columnasPermitidas: Record<string, string> = {
+      nombre: 'nombre',
+    };
+    const columna = columnasPermitidas[campo];
+    if (!columna) return [];
+
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ${columna} AS valor
+       FROM public.cuenta_financiera
+       WHERE tenant_id = $1 AND ${columna} IS NOT NULL AND ${columna} <> ''
+       ORDER BY valor`,
+      [tenantId]
+    );
+    return rows.map((r) => r.valor);
   }
 
   async findById(tenantId: string, id: string) {

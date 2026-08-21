@@ -20,8 +20,9 @@ const upload = multer({
   },
 });
 
-router.get('/',     authMiddleware, productoController.getAllProductos);
-router.get('/:id',  authMiddleware, productoController.getProducto);
+router.get('/',                 authMiddleware, productoController.getAllProductos);
+router.get('/valores-unicos',   authMiddleware, productoController.getValoresUnicos);
+router.get('/:id',              authMiddleware, productoController.getProducto);
 router.post('/',    authMiddleware, productoController.createProducto);
 router.patch('/:id', authMiddleware, productoController.updateProducto);
 router.patch('/:id/imagen', authMiddleware, upload.single('imagen'), productoController.uploadImage);
