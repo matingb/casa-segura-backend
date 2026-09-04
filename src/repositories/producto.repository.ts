@@ -21,6 +21,9 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   estado: 'p.activo',
 };
 
+export type UnidadDimension = 'mm' | 'cm' | 'm';
+export type UnidadPeso = 'g' | 'kg';
+
 export interface ProductoData {
   tenant_id: string;
   subtipo_id?: string | null;
@@ -32,9 +35,13 @@ export interface ProductoData {
   color?: string | null;
   presentacion?: string | null;
   alto?: number | null;
+  unidad_alto?: UnidadDimension;
   ancho?: number | null;
+  unidad_ancho?: UnidadDimension;
   profundidad?: number | null;
+  unidad_profundidad?: UnidadDimension;
   peso_unitario?: number | null;
+  unidad_peso_unitario?: UnidadPeso;
   imagen_url?: string | null;
   descripcion?: string | null;
   activo?: boolean;
@@ -192,9 +199,10 @@ export class ProductoRepository {
     const { rows } = await pool.query(
       `INSERT INTO public.producto
         (tenant_id, subtipo_id, codigo, codigo_barra_proveedor, nombre, marca, modelo,
-         color, presentacion, alto, ancho, profundidad, peso_unitario, imagen_url, descripcion, activo,
+         color, presentacion, alto, unidad_alto, ancho, unidad_ancho, profundidad, unidad_profundidad,
+         peso_unitario, unidad_peso_unitario, imagen_url, descripcion, activo,
          precio_base, codigo_qr)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
        RETURNING *`,
       [
         data.tenant_id,
@@ -207,9 +215,13 @@ export class ProductoRepository {
         data.color ?? null,
         data.presentacion ?? null,
         data.alto ?? null,
+        data.unidad_alto ?? 'cm',
         data.ancho ?? null,
+        data.unidad_ancho ?? 'cm',
         data.profundidad ?? null,
+        data.unidad_profundidad ?? 'cm',
         data.peso_unitario ?? null,
+        data.unidad_peso_unitario ?? 'kg',
         data.imagen_url ?? null,
         data.descripcion ?? null,
         data.activo ?? true,
@@ -223,8 +235,10 @@ export class ProductoRepository {
   async update(id: string, data: Partial<ProductoData>, tenantId: string) {
     const fields = [
       'subtipo_id', 'codigo', 'codigo_barra_proveedor', 'nombre', 'marca',
-      'modelo', 'color', 'presentacion', 'alto', 'ancho', 'profundidad',
-      'peso_unitario', 'imagen_url', 'descripcion', 'activo',
+      'modelo', 'color', 'presentacion',
+      'alto', 'unidad_alto', 'ancho', 'unidad_ancho', 'profundidad', 'unidad_profundidad',
+      'peso_unitario', 'unidad_peso_unitario',
+      'imagen_url', 'descripcion', 'activo',
       'precio_base', 'codigo_qr',
     ];
 
