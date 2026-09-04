@@ -4,6 +4,7 @@ import { ProductoSucursalData, ProductoSucursalFiltros } from '../repositories/p
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
+import { BusinessError } from '../utils/errors';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new ProductoSucursalService();
@@ -118,9 +119,14 @@ export class ProductoSucursalController {
 
   create = async (req: TypedRequestBody<ProductoSucursalData>, res: Response): Promise<void> => {
     try {
-      const item = await service.create(req.body);
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const item = await service.create(tenantId, req.body);
       res.status(201).json(successResponse(item));
     } catch (error: unknown) {
+      if (error instanceof BusinessError) {
+        res.status(400).json(errorResponse(error.message));
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in ProductoSucursalController.create:', error);
       res.status(500).json(errorResponse(message));
@@ -151,6 +157,10 @@ export class ProductoSucursalController {
       }
       res.status(200).json(successResponse(item));
     } catch (error: unknown) {
+      if (error instanceof BusinessError) {
+        res.status(400).json(errorResponse(error.message));
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in ProductoSucursalController.update:', error);
       res.status(500).json(errorResponse(message));

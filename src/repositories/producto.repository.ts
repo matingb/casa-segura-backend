@@ -46,6 +46,7 @@ export interface ProductoData {
   descripcion?: string | null;
   activo?: boolean;
   precio_base?: number | null;
+  costo_reposicion_base?: number | null;
   codigo_qr?: string | null;
 }
 
@@ -201,8 +202,8 @@ export class ProductoRepository {
         (tenant_id, subtipo_id, codigo, codigo_barra_proveedor, nombre, marca, modelo,
          color, presentacion, alto, unidad_alto, ancho, unidad_ancho, profundidad, unidad_profundidad,
          peso_unitario, unidad_peso_unitario, imagen_url, descripcion, activo,
-         precio_base, codigo_qr)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         precio_base, costo_reposicion_base, codigo_qr)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [
         data.tenant_id,
@@ -226,6 +227,7 @@ export class ProductoRepository {
         data.descripcion ?? null,
         data.activo ?? true,
         data.precio_base ?? null,
+        data.costo_reposicion_base ?? null,
         data.codigo_qr ?? null,
       ]
     );
@@ -239,7 +241,7 @@ export class ProductoRepository {
       'alto', 'unidad_alto', 'ancho', 'unidad_ancho', 'profundidad', 'unidad_profundidad',
       'peso_unitario', 'unidad_peso_unitario',
       'imagen_url', 'descripcion', 'activo',
-      'precio_base', 'codigo_qr',
+      'precio_base', 'costo_reposicion_base', 'codigo_qr',
     ];
 
     const updates: string[] = [];

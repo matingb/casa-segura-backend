@@ -117,6 +117,11 @@ export class CuentaFinancieraRepository {
         oc.monto_usd,
         o.fecha,
         to2.nombre AS tipo_nombre,
+        CASE
+          WHEN to2.nombre = 'Venta' THEN 'ingreso'
+          WHEN to2.nombre = 'Movimiento' THEN m.tipo
+          ELSE 'egreso'
+        END AS movimiento_tipo,
         u.nombre   AS usuario_nombre,
         s.nombre   AS sucursal_nombre,
         CASE 

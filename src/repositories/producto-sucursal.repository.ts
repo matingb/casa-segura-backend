@@ -12,6 +12,7 @@ const JOIN_QUERY = `
          p.subtipo_id      AS producto_subtipo_id,
          p.activo          AS producto_activo,
          p.precio_base     AS producto_precio_base,
+         p.costo_reposicion_base AS producto_costo_reposicion_base,
          s.nombre          AS sucursal_nombre
   FROM public.producto_sucursal ps
   JOIN public.producto  p ON p.id = ps.producto_id
@@ -167,6 +168,7 @@ export class ProductoSucursalRepository {
              p.subtipo_id      AS producto_subtipo_id,
              p.activo          AS producto_activo,
              p.precio_base     AS producto_precio_base,
+             p.costo_reposicion_base AS producto_costo_reposicion_base,
              s.nombre          AS sucursal_nombre
       FROM public.producto_sucursal ps
       JOIN public.producto  p ON p.id = ps.producto_id
@@ -250,11 +252,14 @@ export class ProductoSucursalRepository {
     return rows[0] ?? null;
   }
 
-  async create(data: ProductoSucursalData) {
+  async create(data: ProductoSucursalData, tenantId: string) {
     const { rows } = await pool.query(
       `INSERT INTO public.producto_sucursal
         (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, stock_minimo, habilitado)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+       FROM public.producto p
+       JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
+       WHERE p.id = $1 AND p.tenant_id = $10
        RETURNING *`,
       [
         data.producto_id,
@@ -266,6 +271,7 @@ export class ProductoSucursalRepository {
         data.margen_minimo ?? null,
         data.stock_minimo ?? 0,
         data.habilitado ?? true,
+        tenantId,
       ]
     );
     return rows[0];

@@ -4,6 +4,7 @@ import { authMiddleware } from './auth.middleware';
 import { AuthService } from '../services/auth.service';
 import { AUTH_COOKIE_NAME } from '../config/cookie';
 import { errorResponse } from '../utils/response';
+import { AuthSessionMissingError } from '@supabase/supabase-js';
 
 vi.mock('../services/auth.service');
 vi.mock('../utils/response', () => ({
@@ -82,6 +83,22 @@ describe('auth.middleware', () => {
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith(errorResponse('DB Connection Failed'));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('clears a stale Supabase session cookie without treating it as an internal error', async () => {
+    req.cookies = { [AUTH_COOKIE_NAME]: 'stale-token' };
+    res.clearCookie = vi.fn().mockReturnThis();
+    vi.mocked(AuthService.prototype.getUser).mockRejectedValue(new AuthSessionMissingError());
+
+    await authMiddleware(req as Request, res as Response, next);
+
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      AUTH_COOKIE_NAME,
+      expect.objectContaining({ path: '/' })
+    );
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(errorResponse('Authentication token is invalid or expired'));
     expect(next).not.toHaveBeenCalled();
   });
 });
