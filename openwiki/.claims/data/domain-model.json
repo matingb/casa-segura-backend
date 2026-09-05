@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:09cf9fb13401855c28bc75edbd42772ea4783b52dee7d0732cb12a8ca830ba3d",
+  "claims": [
+    {
+      "id": "claim_68b55bf9185d4118b309b5984ae6167f",
+      "statement": "The initial schema makes `tenant` the ownership root and maps Supabase Auth identities into `public.usuario` through `auth_id`; `usuario_sucursal` associates a user, branch, and role.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L10-L16",
+          "version": "repo-lines-v1:sha256:398104f4cd7221240db20bf097df7fd78b8884e32ea718e8918a99933179c7c0:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzI4MGQyNjdhZGVjZTA2MDU3NTk1NmQ1ZjNhMDk0YTg4NDY0YTI0ODBiNzUxMDllY2NkMWE3NzgzMmU4MmVmOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiN2ViNzAyNTc1OTNkYTA2ZjY4MmEzZGRkYTU0YTlkMjYwZDRmYzUxNGY2NDUyMzdmNWNhNzRiMDhmOGRhNjFhNiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiY2E5NWM1ZTY4NzQ2YWMwMTY2ZTNmOTAxYjMxMjFiYjhjYTM1MzFhM2NiOGEzODNmZGMxMTNiZmE4ZWE2YTZiYyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiMTc1ZTg5NTZlZDQwZDBlMDA0MTVmMWFlMGYwODMyMjg4OTUzZjY2M2MxMGM0MjA4NzY5Nzc5ZDc5NTlhOGNhOCJ9"
+        },
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L101-L120",
+          "version": "repo-lines-v1:sha256:0f25a295dbdef12eeba9dc6e4565a3af8aa6422158042868276259c05197dc60:eyJzZWxlY3RlZExpbmVDb3VudCI6MjAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZkNTgyMmU3NGY0ZDQ0ZDdkMmU4M2JlNjdlNzU3NjBmYmRhNzBhYzNlMDk1MzAzMTAyNTYyZWY3ZWZkMTU5ZGIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlYjcwMjU3NTkzZGEwNmY2ODJhM2RkZGE1NGE5ZDI2MGQ0ZmM1MTRmNjQ1MjM3ZjVjYTc0YjA4ZjhkYTYxYTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI3YzgzMDJlN2Y3MWJiMjE4NGFjZmE3ZDYwYWNiOWQxNzU3YzQ4MjFiNWViYTJhYzcxYzZjMmQ0ZWIwOWRlNmEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjYwYTk3N2YyMDFjZjQ1ZTRmMTBhNDIzYTdlOWVhMjA0MmQxNTdmMjdhZDIxZDQ2OTJjZTA4ZmJmYWFlNjUzMzcifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1c5606d7e4b24df08aba0abf8a944398",
+      "statement": "The inventory model separates tenant-wide `producto` records from the unique product/branch `producto_sucursal` records that store enablement, pricing, tax, margins, and stock quantities.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L124-L168",
+          "version": "repo-lines-v1:sha256:ae30ef77e16d48bead56e57836db3e7e93a40dfa61fefd441c4658ddddf538ea:eyJzZWxlY3RlZExpbmVDb3VudCI6NDUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMxMjZiNTAxMmExNDBjMWE3Y2IzODk4YzE0ZTZkYzU4MGQ0NTRlNDliZDBlNTFlNmJlZTNhY2ZjYjY2MTRiYWEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAwNTM1YzgxZDRlNzc0NDI3MTBlN2NhOGJlZTU4NDk1YzA0YWE3YTczY2NlZmUwMjQ5NmE1MTZjMzljMGQyN2MiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjYwYTk3N2YyMDFjZjQ1ZTRmMTBhNDIzYTdlOWVhMjA0MmQxNTdmMjdhZDIxZDQ2OTJjZTA4ZmJmYWFlNjUzMzciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjkxMzkxYjMzZTc0YjM5OTliZWQxYmE1ZmI4NzY1N2EwMGZiYTg5MDY5NzQ1MTdkMTEyZTg1NDBkNzk4M2Q5YTEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b94714b35166457394349714b94c9657",
+      "statement": "A generic `operacion` header has product detail and account-allocation child tables, while Compra, Venta, Traslado, and Movimiento each have a one-to-one extension table.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L171-L267",
+          "version": "repo-lines-v1:sha256:9aa583188c5edfbfbfd6c4f0ddf3fdfac39dfbbd5a4a78e9292c74fe128d305d:eyJzZWxlY3RlZExpbmVDb3VudCI6OTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY4OTgyMGEwNjcxNjg2YTdjNjllNmZjYWFiYzFjOTY4OTEwZTJhMDNkNmM2NDBlMmMyZTg2ZTI5MTcwYmYwYmYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAwNTM1YzgxZDRlNzc0NDI3MTBlN2NhOGJlZTU4NDk1YzA0YWE3YTczY2NlZmUwMjQ5NmE1MTZjMzljMGQyN2MiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjY3NjViYTA1ZWMwOWZhZjRmNDc2OTNjMGQwMzRlZWYzNzkzNjZiYWFmMzEyNjkwZWQ3YTcxOGJiNGE5MzYyMGIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjE1MDIyMzhmMWU0MDA3MGMwMDBlZTMwNDI2MWRjMDIzODJlNTcxNTE2MWRmNjVkODUyYzY3MWE3OWQ5MWJiNTgifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_83f3d980e5a4446fb95a7265ca5655f1",
+      "statement": "The migration enables RLS and defines `current_tenant_id()` from the current auth user; direct tenant tables and relation-owned child tables receive tenant-isolation policies.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L287-L320",
+          "version": "repo-lines-v1:sha256:f3f09c10b925e08d331768eeed90471e62334ce66aefc6bcba0879b04309ea27:eyJzZWxlY3RlZExpbmVDb3VudCI6MzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAwNTM1YzgxZDRlNzc0NDI3MTBlN2NhOGJlZTU4NDk1YzA0YWE3YTczY2NlZmUwMjQ5NmE1MTZjMzljMGQyN2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZiODQ0MjQxNmYwMTZjNzU4NWFjYzRmMTExNjllNGMyZTkwMzlhYzllMjcwMDM1OTc4MzY0MmIzZDM0YmNiOWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcyMDg2OTVhYTFjZTU3ZGQ3NTNmZWQwMDI0MDQ4YjU1MjdiYjUyZDA0ZjI3OTZkNTdiN2NlYmFkM2RmZWU2ZjQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU3ODU0MTI4MjY0MWYxNGZiNjI5MzFjZDJjNjU2M2ZiMDUxY2NhOTRlM2ViMWFkOTI5YTdhOWZkYjQwMWM4ODQifQ"
+        },
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L350-L438",
+          "version": "repo-lines-v1:sha256:9065fb19b1061bedbaf6671b9cca7d410035d1428e1900a94724baacc272d11c:eyJzZWxlY3RlZExpbmVDb3VudCI6ODksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiZTM5ZDUxODk2MmNiOGMwNGM0MjE3MTkyYWQ1MmVkODMyNzk2MmE0ZTYzYWE0NTAxMDZhNjdkMjIwMWE4MzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE1YWM5OGYyMzg2YTJiMzlkMWVlYjc2NWIxZjRlNWE4NWJjZTFhY2FhZDNkMWY1OTQ1MGI0OTgzOGExMDQzM2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUwZTczMzEwNDI5NmEwZDg3Y2E5NDIxNmQwZjlkZmQ1MTc1MWNhZGU5ZmRhOGIyNjY3MmRlOWE1ZTFiMzk0MmMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoxLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhhM2EyMDUxNDc4ZjQwYTkwMDM4MmY0ZjU2MzM5NTlhMjgzZmQzMzJmMWQ1ZGEyYjBjZGY3MjZmZjYwMDk2ODYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_7296ee91649f440f8ab31bbb6d43da37",
+      "statement": "Product migrations add a reference price and QR code, dimension/weight unit enums and columns, and a base replenishment cost.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260820000000_producto_precio_base_qr.sql#L1-L4",
+          "version": "repo-lines-v1:sha256:1a98326ef27c0bf64a326f6d197a5893392ecdb7f17616799f135ed5b7188662:eyJzZWxlY3RlZExpbmVDb3VudCI6NCwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiNzc4NjE1ZDVhMjYzZDZiNjQ1ZjQ3M2RmMDhlYWQ2Y2ZlNWNmMDg5ODBlOTMxZWZmNDE4ZDc2ZTJmMmExZGYwNiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOWE2NzI2NjdmMGZiNDY0ZmEwZGRkYjZmODhmMGU4NzliYjY0ODE4OWI3YzY4OGM0NzQxY2UwYmZmMDQxOTc3NCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://supabase/migrations/20260904000000_unidades_producto.sql#L1-L22",
+          "version": "repo-lines-v1:sha256:aa62dbbb88ec13825200ab006524b41a943a422f6128317d7e12687f37f0560a:eyJzZWxlY3RlZExpbmVDb3VudCI6MjIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFlMmEyMjE5YmFlZTNkOGI0ODYwN2Y3MWY5YzUxOTkyZGVkZWQ1NmYyNjE3OTM5MzdlMGI2NzY2OGVjMGJmNzciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlYjcwMjU3NTkzZGEwNmY2ODJhM2RkZGE1NGE5ZDI2MGQ0ZmM1MTRmNjQ1MjM3ZjVjYTc0YjA4ZjhkYTYxYTYiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://supabase/migrations/20260904165651_add_producto_costo_reposicion_base.sql#L1-L6",
+          "version": "repo-lines-v1:sha256:bc6e30a064877ff6c967fcb2c8c04489a48ba2da42310965d7b7aa00cac011a6:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiMjAyZTliMDJmYjI4ZTEwNTlmMDk0NWY3N2FlYmU2ZDA3YTViOWY2ZDczYmM4ZTJjMGUxNzE5Yzc2NDM0ZjQ3NCIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiOGNjZTU3NzNjMzA5Yjk4ZDg3NDdhMTE0MjIzZDkyOGQwM2MyNjJiOTJmNmUyZTgwZmRiZmUwNjI2MzU1MTcxMyIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_689ec04c179946eab159264fc3bfcc1a",
+      "statement": "The `productos` storage bucket is public for reads, capped at 5 MB with configured image MIME types, and permits writes only to `service_role`.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260805000000_storage_productos.sql#L1-L36",
+          "version": "repo-lines-v1:sha256:19df54f9c56e34d2507c753dc72d5f4614dad7c7baa57836598728dd7ee81c0d:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImFlMmEyMjE5YmFlZTNkOGI0ODYwN2Y3MWY5YzUxOTkyZGVkZWQ1NmYyNjE3OTM5MzdlMGI2NzY2OGVjMGJmNzciLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImExZDFiZjUzMmMwNTc2YjkyN2Y1NTg4NDAyN2Q1ZDUzNjcyY2EzODM1ZGU4OGUyN2M4NjBhNWNhNGYyYmMwNTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.0",
+    "at": "2026-09-05T03:32:47.137Z"
+  }
+}

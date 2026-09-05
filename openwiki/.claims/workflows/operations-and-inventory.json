@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:63b6481ec7aabbe34445d226a268727ff99b858f736770ad9ea6fb22faed5853",
+  "claims": [
+    {
+      "id": "claim_1dd8e66c1e7e4cdb8e57270b8603d3cb",
+      "statement": "The operations controller validates operation type and branch, type-specific required fields/items, transfer branch distinction, movement direction/account requirement, and account-allocation mode inputs before calling the service.",
+      "evidence": [
+        {
+          "resource": "repo://src/controllers/operacion.controller.ts#L99-L226",
+          "version": "repo-lines-v1:sha256:3e259ff799d3e86ec60eb484ae362ff20d6eaeb89e1906edca57d37d0a169b89:eyJzZWxlY3RlZExpbmVDb3VudCI6MTI4LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJjMjExNDUzMDhkYTY4OTRjNDFmODczZmY1NzA1N2U4Y2NkOTQzNjA2M2YzNzY4Njg2M2RhZWRmOTgxZWUyM2IwIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI3ZWI3MDI1NzU5M2RhMDZmNjgyYTNkZGRhNTRhOWQyNjBkNGZjNTE0ZjY0NTIzN2Y1Y2E3NGIwOGY4ZGE2MWE2IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiJhODI4MTkzNTdlYTJmZGIwYzkwYWZlYTZmN2M1NGM2YzU5NGQ2OWVkNmE4MTE1ZTI1M2Y3OWJiOGQ2MDg5ODJlIiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_d02f4cdc41414968b59c062956e410c6",
+      "statement": "Operation creation runs inside `withTransaction`, resolves the caller's branch assignment and operation type, inserts headers/details/extensions/accounts, applies type-specific effects, and reads the scoped result after commit.",
+      "evidence": [
+        {
+          "resource": "repo://src/repositories/operacion.repository.ts#L376-L443",
+          "version": "repo-lines-v1:sha256:a69ca0020737e233661e5e546f1fc9ccbf247ddb12c5487ac8fce7abe1f5ecfa:eyJzZWxlY3RlZExpbmVDb3VudCI6NjgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiZmIwODc1NDQ5ZGYzYTJiNzVkOGNjZTZhYmQzMDU4NGM4ZTZkOWI2OWU4Mzc0MzFjN2YzNTYyM2U4ZDgzM2UiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiMTc3MWE0ODc4MWExNzg0NjNkYzVhMTc1ZWMyMjEzN2IwNThiMWQ0YmZlNDMyMGM2OWNhYTAzY2M4OTE0NzkiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFlNjk1ZDRjMTYxZWIyOTc5N2FhMmI4ZWRjNDFkMTE0MGZlNDM2MGY1ZDVmYmQxMDUxZjNlMmY4ZGVjZmViYzQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjcwMjRmNjUyMDA5NjIwYzc2YTVkOTYzN2YyYzBjZDIxNGNkN2RiZTU0M2Q1NWYzMmVkMGEyNDA0Mjk3NWQ4NzcifQ"
+        },
+        {
+          "resource": "repo://src/utils/db-transaction.ts#L1-L17",
+          "version": "repo-lines-v1:sha256:90d27461ec1ae26d8969288b986659d8e90ff52923d9c6555c4a6a92490ab43e:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiMTE5MTI1N2UzNWU1NDAzZTk3YjJlYjkwZjkxNzRmZmVlMzZkMmQ5OTkxNmNmYWIyNzQ3YmZkODAyMWY2M2IiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_65481a514c7b47548ddf51ba59a5e35e",
+      "statement": "The operation repository derives account surcharge values from tenant-scoped financial-account rows, rejects missing accounts, and resolves allocations using a base that depends on operation type.",
+      "evidence": [
+        {
+          "resource": "repo://src/repositories/operacion.repository.ts#L446-L490",
+          "version": "repo-lines-v1:sha256:97b338c43e0d3fa3acd82b9dddaf4f24bcbe1dcd96520732ce075cfee63eedc5:eyJzZWxlY3RlZExpbmVDb3VudCI6NDUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImVlYzFlZTM4YzBhZDRmZTI4ZjllOGY0NzBjM2E3YWY1ZTdhYjg2ZjU1OGQ4YjJhOThmY2M2OTljNDBhM2MzZTEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAzYjdmMGNjZTU3MTI2MGJiN2YyYTA3ODI5N2U3YzUwMGUyODNkYzVhZmM4YWQ4ZTJmNmJkNDc1OGE1YzA3NjEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImM4YWU4YTZlYWMwMWUwY2Q4ZGZkMmM1Y2M5MWZjNThiMDZjNTRhNWY3MzhjODVkNmI4MGRiMzMxZWJkMWMzNDciLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImRkMDQ2MDRlZGE3YmNkYTkwYzM0ODg1MDIxOTdjMTczZTAyYWE1NjRmZDE4YmRmNTZiZTkwZmM4ZjIzZDBmZTkifQ"
+        },
+        {
+          "resource": "repo://src/utils/reparto-cuentas.ts#L34-L147",
+          "version": "repo-lines-v1:sha256:34280de7e3b862a9d1a7f1cbcb36b26f1818b0196e9cd825e5b1e3d1b2025925:eyJzZWxlY3RlZExpbmVDb3VudCI6MTE0LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiI0NWFjMjE0MTZjZjQyODcwYTc2MDdhOGY0OWI0NjFiNjNmNzY1MDUyYjIxOGUwNDZmNGIwYmIzZTgyYjU0NmViIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJlMjJmYWE1MzViZDJlYTNkNTJlNzQxZWQ0NTQ0MzViN2ZlNDllODM1ODZlOTQzZDk4ZDgyYmJmYjI0ZDFmNWM1IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiI4NTMwODIzOTc4ZDFjYzA1MDg2ZTQwNjJlYjQ3ODdlM2MxYTE5N2U0Njk4MDdjNGEzMGU4NjI5NTI5MjAyMmE5IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_92308d3a0a2242d697d154bd9684a10c",
+      "statement": "Purchases increase stock and debit accounts; sales validate margin, decrease stock, and credit accounts; transfers move stock between branch records and optionally debit freight; movements credit or debit according to direction.",
+      "evidence": [
+        {
+          "resource": "repo://src/repositories/operacion.repository.ts#L400-L428",
+          "version": "repo-lines-v1:sha256:11a728dd33a3eb6e2b8557ce21206fe767da698db130acf339bb447754261ce3:eyJzZWxlY3RlZExpbmVDb3VudCI6MjksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMxOTNmNjk2ZjQyMzQwNmM0MmZkYmJkZjg3MWNjMGJiNDllMjUyNTI0OTJmNjQ2ZmE3NTBkMTYwOWMzMWYyYjkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRhYjU1ZGQ4MDRlYWY3NWEyZTAzYmE1ZDkwNTMzMGU3NDcxYmQ1NDEwYzA1YWI0NjQxYWI5YzY2YzU3ZWM3ZTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImFjNDE1M2MwYzViNWFmMjg4ZGI3MDIyZTMxODJkODg1ZDlkNGMwM2IxMjg0ZTQyZjE2MGNhNzQxYjFiNGI0NDIiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMyYzc3YmJjNWI3YTk2ZTkwMmNhMzYxYmZkNzUyODc3Yjc0NGY0OTU0ZTEwOTAyNjYzOGM2YzNhODI2NzUwMTEifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_a793473855554392841d26f2835f6d5d",
+      "statement": "Stock and financial account updates use `FOR UPDATE`; sale and transfer paths reject missing or insufficient stock, and transfer requires the destination branch to have the product enabled.",
+      "evidence": [
+        {
+          "resource": "repo://src/repositories/operacion.repository.ts#L624-L743",
+          "version": "repo-lines-v1:sha256:ef5bda200afaec92b67bb042f8e5535ee8af75de42b0fedecde0a91726d17e67:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIwLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiIxZmNmMzgyNjg2NjY0YTM4M2IyM2M1M2ZhNGJiOTkzMzgxNzI5NjkxZTA1MTQ1MjlkMTUxZWY0YmM0OGVjNWQ3IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJlMjJmYWE1MzViZDJlYTNkNTJlNzQxZWQ0NTQ0MzViN2ZlNDllODM1ODZlOTQzZDk4ZDgyYmJmYjI0ZDFmNWM1IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MywicHJlY2VkaW5nQ29udGV4dEhhc2giOiI1ODUwOGI2Y2IwNTg5YWJhNzUwMzIwMmRlMmM4Zjg3ZWQ5YjE5Y2Q1ODY1M2ZkMDFhM2U2NzVlM2FiN2I1OTY3IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_56b3880da38f4538a597941c4b453a3f",
+      "statement": "Replenishment orders are persisted separately with tenant, product/branch stock record, user, supplier, quantity, status, source, and date.",
+      "evidence": [
+        {
+          "resource": "repo://src/repositories/pedido-reposicion.repository.ts#L183-L241",
+          "version": "repo-lines-v1:sha256:ea681a12a6df734814165e403cb5e0c1b8b2e9d770ba6eef35780a24969f8da4:eyJzZWxlY3RlZExpbmVDb3VudCI6NTksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY4NGEzYTkyMWUwYzc1NDk0OGE4MTA5NjVkYzMyODJkMDRiOTU2MWI3NTI1Mzk2YTdjZGZjZGQyYjQwZjRiMzQiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImYxYWYyMTRkZGEwYTg4M2M4MzI4YTY3ZWJjNDcyNDA4MDYyNWI3M2RjNWQyMmIzMjE5NmVlNThkNDAyZWFlZDgiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.0",
+    "at": "2026-09-05T03:32:47.137Z"
+  }
+}

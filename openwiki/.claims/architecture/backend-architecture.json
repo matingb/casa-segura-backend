@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:70abef10b50d0326922b663ef7146813ab9b1e9fe83b1912852bc6feb539a6db",
+  "claims": [
+    {
+      "id": "claim_89bed1bbb5a64ddc8d89dacb75c13163",
+      "statement": "The server configures CORS, JSON parsing, and cookie parsing, then mounts authentication and resource routers under `/api` before listening on the configured port.",
+      "evidence": [
+        {
+          "resource": "repo://src/index.ts#L1-L51",
+          "version": "repo-lines-v1:sha256:e66719bb21c8afa6f7249b52f4aa7dc0ce65991be5d70bddaab1ac92b86b4902:eyJzZWxlY3RlZExpbmVDb3VudCI6NTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MmE2NjdhZWU5Zjg1NjFhZDljNmI2YzY5MTRiYzE4MDMxNDNjODQwYWE3MjljNTcxZjA3MjU2ODlkNjE2MWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_c348769c75184c09a6e7a8ef1d8201d2",
+      "statement": "Protected resource routes use `authMiddleware`; the product router protects list, detail, create, update, and image upload operations.",
+      "evidence": [
+        {
+          "resource": "repo://src/routes/producto.routes.ts#L1-L30",
+          "version": "repo-lines-v1:sha256:f050d4a8aee7e4246c0babd7cbdda89c6d4b2e6d764ef9c922e9e1a74e6cabb6:eyJzZWxlY3RlZExpbmVDb3VudCI6MzAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3NTc0ZTMyZjNlNDBlN2U2ZDhhYWIzMTIzNDA0MWZjOWMyYzUzMDY3MjIxNDRhZTM0NmU1NjU5ODI1ZDkwMGUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ3MTA2MDhjOTNkNDBhNTdlYTk0MDhkYmQwOGQzMGIzYmMzMjNiNmUyYjQ0ZWU3MGFmZGIzOGU3Y2U3NjQ3ZTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f09228893ba3429cb0a98f15a80079a6",
+      "statement": "The authentication middleware obtains a token from the configured cookie or bearer header, resolves the Supabase user, assigns `req.user`, and returns 401 on failure.",
+      "evidence": [
+        {
+          "resource": "repo://src/middlewares/auth.middleware.ts#L1-L37",
+          "version": "repo-lines-v1:sha256:548a0368234e1498ed26047392c7a925dfb5160eba908aa6ba301c6a217676c0:eyJzZWxlY3RlZExpbmVDb3VudCI6MzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3YjhmMjhlZDU4YmQxZDJhNjM5NWU2ZGFlYTFkMTVhZTcxMmM3YzIyZmUyMjliNDFhZThlZThmMTRkYjFhZWUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmZTExYTcxMmI4YzczYzA5N2U4YTFmMGFjYmE5YzQyMjYxNWMzYjllZTc3ZjdhNzBiMTZhZGYxMTk3MTNlMGQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_23d56b3f365b4c15b879ac9362c421bb",
+      "statement": "Controllers derive the application tenant from the authenticated user's Supabase id, while product repository queries scope reads and updates by `tenant_id`.",
+      "evidence": [
+        {
+          "resource": "repo://src/repositories/producto.repository.ts#L160-L223",
+          "version": "repo-lines-v1:sha256:5acb23c78d67350236bd266669a6ed1564a0c210ffc6f8b68dab8d55bf89bac1:eyJzZWxlY3RlZExpbmVDb3VudCI6NjQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUzNGYwMzU2MTk4MDkyYTgxMDFmMTE3MGIwMDcxMDZhYzIzZDQ5OTNkNjM0ZjljOGE5Y2Q5NDk1MGJmNjNiZTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjViZTMwM2U5MGE0ZTE4ZGQzZjk3OTM2ZDMyODQxNTMwOTAxZmEyOGYyY2VkMmI2ZmU5ZDk4ZWU0OWI0MTljN2MiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6Ijc1YjBhMGJlOTA0MDRmZjNjZWNkYjczZmMxMzdhMDJhMjhmMmJlZTY5NzlmYjViNzYwMjg0MWNhYzZhMTM3MmYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjcyNTE3YjMyZWIzMzNhNzAwOGY0MTYzMjUyN2MwNjgxYTIxNjFkYjQ3ZjVjOWY5YmVhNTMyMGRkMDFmYWFiYTAifQ"
+        },
+        {
+          "resource": "repo://src/repositories/producto.repository.ts#L46-L55",
+          "version": "repo-lines-v1:sha256:0b72b23839781bbaba9cba128fe8eca596fb9fe90276a514e772668a4f4fe1aa:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImI3ZjZhMzBjMjk3YmY3MDEwZGM3OTczNWE5YzllM2RhZDJjOGRjYWU2NTFlZDllMmE3MTNjODNmMmU5ODg5M2EiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjMyMWZlMWYwMDI2M2YyZDA2MzcwMmM3OWRjYWRkYmI3MjRkMDZlNzZkZTQ5Mjk2ZGY1OGQ4MzcxOTRmNTQ5Y2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjFmYjljZTg5ZDg0OGFmMGIxYWYwMzcyMjk5MmNkY2JkODhjM2VkNjkzMWViMzE4ZDAzMTBmYWE1MzhhNjVlZjEiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjMzNWUyYmY4NTFhMmRiNmQ2NzQwODk1ZjcwMGJlNTI0MjhkMmFiMTk0OTAxNDI0MjMxNDQzZDgxNzgxZGVmMGUifQ"
+        },
+        {
+          "resource": "repo://src/utils/tenant.ts#L1-L31",
+          "version": "repo-lines-v1:sha256:de08551f1670bafb6fa4030c434845dc6178a86a8b40531ff5dd4b252e5250a3:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE5YTU3MGRlYTM3ODc2MWYzMGZkYWZlZTkwM2E5YTY3OTBjNTk3Yjk3Yjg0ZDFiMTg5MWJlOWY2Yzk0YmRhNDEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0b88b78163cd4f30b653dc322367b9ca",
+      "statement": "Response helpers standardize success, error, and cursor-style paginated JSON envelopes.",
+      "evidence": [
+        {
+          "resource": "repo://src/utils/response.ts#L1-L11",
+          "version": "repo-lines-v1:sha256:4d49964aeff14ef56604481728674745643b25228132616eb17caac9f3f91441:eyJzZWxlY3RlZExpbmVDb3VudCI6MTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImNkZmM4NmMyY2MxYTI5YWFhYWE5ZmRiZTk0NTAxOTIyNzZmMzdmNzUzMWJjODkzOGFhOTE3ODc3M2FhZWM0MDEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_f69c3b16f8044f43922a73d00521bfc9",
+      "statement": "Product image uploads are limited to selected image MIME types and 5 MB, then use a tenant/product storage path through the service-role Supabase client.",
+      "evidence": [
+        {
+          "resource": "repo://src/routes/producto.routes.ts#L7-L20",
+          "version": "repo-lines-v1:sha256:b9ca20c34b887e2a9b283b9cca490f5b99155ddd060fc2be463af8c53a410dba:eyJzZWxlY3RlZExpbmVDb3VudCI6MTQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImRiYTcyMTA2NTI4N2M1OTZkNzA4NThmZjg0MmY3OGUzNzBlZTQ2Y2U2MDBjMzEyODJjYzMxYTNjMjk5N2ZmZWYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImIwYzk0OTg1NTI2YzFjNTdlZjAwYzAwZDNmNGRjOTA2MTU2NzdhMGEzNmE4Yjc5NWRmZjlhZmZkNTBmZTlmNTgiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImYwYjFjOTg5NDM3YWZjZWEzODZkYjA3NjYzZWY2ODY5NTk0NjYwYTc5YWU2NjBiNmUwYTE0MjMxYWRhMGU2ODYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjJmNDIwYTE1OGZkNjQwMjQ3ZjAwMDFkYjhjY2NhNTU4NDFjNTJhY2ZjMzYzMWFhYTJjZWE3OGU5NWVkMjMxMTQifQ"
+        },
+        {
+          "resource": "repo://src/services/storage.service.ts#L1-L28",
+          "version": "repo-lines-v1:sha256:c74756ace23a00c7b3672b112cc9071952275b2d26381fd8a6d5d60225b7bb5d:eyJzZWxlY3RlZExpbmVDb3VudCI6MjgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjkxNDY4MzI5NWIxMDFlN2Y1MzJjN2MxYWEyMDk4MjI5MGRhMTFkOWQwNzQ2MWJlZmU0ZjRiZjJjMjQ5MDI5ZTMiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6Ijk3NjYyYjg5ZGQ1ZWRiYzdhNWExMDhkODMyN2QxZjE0NzU1MzFlMjUzODg1Yjc0MWRiNjFlOTIxODY1ODlkODIiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImY5MmIwMWY4YTM0YmE2OTM3YmU4MTRkNmE4NTdiNDg0ZjE2MWNlYTI0ZjE4ZTZhZjk1OTc3YWFjY2Y3NTVlYzgifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.0",
+    "at": "2026-09-05T03:32:47.137Z"
+  }
+}
