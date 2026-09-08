@@ -8,8 +8,8 @@ export class ProductoService {
     this.productoRepository = new ProductoRepository();
   }
 
-  async getAllProductos(tenantId: string) {
-    return this.productoRepository.findAll(tenantId);
+  async getAllProductos(tenantId: string, operativo = false) {
+    return this.productoRepository.findAll(tenantId, operativo);
   }
 
   async getPaginated(tenantId: string, limit: number, offset: number, search?: string) {
@@ -55,6 +55,10 @@ export class ProductoService {
     await this.productoRepository.updateImagePath(id, publicUrl, tenantId);
     
     return publicUrl;
+  }
+
+  async eliminarProducto(id: string, tenantId: string) {
+    return this.productoRepository.softDelete(id, tenantId);
   }
 }
 

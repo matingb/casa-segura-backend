@@ -1,4 +1,6 @@
 import { pool } from '../config/db';
+import { withTransaction } from '../utils/db-transaction';
+import { BusinessError } from '../utils/errors';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 
@@ -58,17 +60,18 @@ export interface ProductoSucursalData {
 }
 
 export class ProductoSucursalRepository {
-  async findAll(tenantId: string) {
+  async findAll(tenantId: string, operativo = false) {
     const query = `
       ${JOIN_QUERY}
-      WHERE p.tenant_id = $1
+      WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+      ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''}
       ORDER BY s.nombre, p.nombre
     `;
     const { rows } = await pool.query(query, [tenantId]);
     return rows;
   }
 
-  async findPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string) {
+  async findPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string, operativo = false) {
     const sentinel = getLimitSentinel(limit);
     const params: unknown[] = [tenantId, sentinel, offset];
     let searchClause = '';
@@ -85,7 +88,8 @@ export class ProductoSucursalRepository {
     }
     const { rows } = await pool.query(
       `${JOIN_QUERY}
-       WHERE p.tenant_id = $1 ${searchClause} ${sucursalClause}
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+       ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause}
        ORDER BY s.nombre, p.nombre
        LIMIT $2 OFFSET $3`,
       params
@@ -101,7 +105,8 @@ export class ProductoSucursalRepository {
     sucursalId?: string,
     filtros?: ProductoSucursalFiltros,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    operativo = false
   ) {
     const params: unknown[] = [tenantId];
     let searchClause = '';
@@ -155,7 +160,8 @@ export class ProductoSucursalRepository {
       JOIN public.producto p ON p.id = ps.producto_id
       JOIN public.sucursal s ON s.id = ps.sucursal_id
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
-      WHERE p.tenant_id = $1 ${searchClause} ${sucursalClause} ${filtersSql}
+      WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+      ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
@@ -174,7 +180,8 @@ export class ProductoSucursalRepository {
       JOIN public.producto  p ON p.id = ps.producto_id
       JOIN public.sucursal  s ON s.id = ps.sucursal_id
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
-      WHERE p.tenant_id = $1 ${searchClause} ${sucursalClause} ${filtersSql}
+      WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+      ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -204,7 +211,7 @@ export class ProductoSucursalRepository {
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
          JOIN public.subtipo sub ON sub.id = p.subtipo_id
-         WHERE p.tenant_id = $1 AND sub.nombre IS NOT NULL
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND sub.nombre IS NOT NULL
          ORDER BY valor`,
         [tenantId]
       );
@@ -217,7 +224,7 @@ export class ProductoSucursalRepository {
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
          JOIN public.sucursal s ON s.id = ps.sucursal_id
-         WHERE p.tenant_id = $1 AND s.nombre IS NOT NULL
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND s.nombre IS NOT NULL
          ORDER BY valor`,
         [tenantId]
       );
@@ -235,7 +242,7 @@ export class ProductoSucursalRepository {
       `SELECT DISTINCT ${columna} AS valor
        FROM public.producto_sucursal ps
        JOIN public.producto p ON p.id = ps.producto_id
-       WHERE p.tenant_id = $1 AND ${columna} IS NOT NULL AND ${columna} <> ''
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND ${columna} IS NOT NULL AND ${columna} <> ''
        ORDER BY valor`,
       [tenantId]
     );
@@ -245,7 +252,7 @@ export class ProductoSucursalRepository {
   async findById(id: string, tenantId: string) {
     const query = `
       ${JOIN_QUERY}
-      WHERE ps.id = $1 AND p.tenant_id = $2
+      WHERE ps.id = $1 AND p.tenant_id = $2 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
       LIMIT 1
     `;
     const { rows } = await pool.query(query, [id, tenantId]);
@@ -259,7 +266,7 @@ export class ProductoSucursalRepository {
        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
        FROM public.producto p
        JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
-       WHERE p.id = $1 AND p.tenant_id = $10
+       WHERE p.id = $1 AND p.tenant_id = $10 AND p.deleted_at IS NULL
        RETURNING *`,
       [
         data.producto_id,
@@ -311,10 +318,36 @@ export class ProductoSucursalRepository {
        FROM public.producto p
        WHERE ps.id = $${idx++}
          AND ps.producto_id = p.id
-         AND p.tenant_id = $${idx}
+         AND p.tenant_id = $${idx} AND ps.deleted_at IS NULL
        RETURNING ps.*`,
       values
     );
     return rows[0] ?? null;
+  }
+
+  async softDelete(id: string, tenantId: string) {
+    return withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT ps.id, ps.cantidad_disponible, ps.cantidad_reservada
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.id = $1 AND p.tenant_id = $2 AND ps.deleted_at IS NULL
+         FOR UPDATE`,
+        [id, tenantId]
+      );
+      const item = rows[0];
+      if (!item) return null;
+      if (Number(item.cantidad_disponible) !== 0 || Number(item.cantidad_reservada) !== 0) {
+        throw new BusinessError('No se puede eliminar la configuración porque tiene stock disponible o reservado.');
+      }
+      const { rows: updatedRows } = await client.query(
+        `UPDATE public.producto_sucursal
+         SET deleted_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+      );
+      return updatedRows[0];
+    });
   }
 }

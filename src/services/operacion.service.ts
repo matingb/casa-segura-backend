@@ -10,12 +10,12 @@ const TIPO_NOMBRE: Record<string, OperacionCrearData['tipo']> = {
 export class OperacionService {
   private repo = new OperacionRepository();
 
-  async getAll(tenantId: string, sucursalId?: string, tipoId?: string) {
-    return this.repo.findAll(tenantId, sucursalId, tipoId);
+  async getAll(tenantId: string, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
+    return this.repo.findAll(tenantId, sucursalId, tipoId, estado);
   }
 
-  async getPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string) {
-    return this.repo.findPaginated(tenantId, limit, offset, sucursalId, tipoId);
+  async getPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
+    return this.repo.findPaginated(tenantId, limit, offset, sucursalId, tipoId, estado);
   }
 
   async getPaginatedWithTotal(
@@ -26,9 +26,10 @@ export class OperacionService {
     tipoId?: string,
     filtros?: OperacionFiltros,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    estado: OperacionFiltros['estado'] = 'activas'
   ) {
-    return this.repo.findPaginatedWithTotal(tenantId, limit, offset, sucursalId, tipoId, filtros, sortBy, sortDir);
+    return this.repo.findPaginatedWithTotal(tenantId, limit, offset, sucursalId, tipoId, filtros, sortBy, sortDir, estado);
   }
 
   async getValoresUnicos(tenantId: string, campo: string) {
@@ -42,6 +43,10 @@ export class OperacionService {
   async crear(tenantId: string, authId: string, body: Omit<OperacionCrearData, 'tipo'> & { tipo: string }) {
     const tipo = TIPO_NOMBRE[body.tipo];
     return this.repo.crear(tenantId, authId, { ...body, tipo });
+  }
+
+  async cancelar(tenantId: string, authId: string, id: string) {
+    return this.repo.cancelar(tenantId, authId, id);
   }
 }
 

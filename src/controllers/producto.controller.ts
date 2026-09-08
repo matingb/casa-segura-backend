@@ -5,6 +5,7 @@ import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
+import { BusinessError } from '../utils/errors';
 
 export interface ProductoQuery {
   limit?: string;
@@ -19,6 +20,7 @@ export interface ProductoQuery {
   filtro_modelo?: string;
   filtro_subtipo?: string;
   filtro_estado?: string;
+  operativo?: string;
 }
 
 export interface ValoresUnicosQuery {
@@ -37,7 +39,7 @@ export class ProductoController {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
       const {
         limit, offset, search, page, sortBy, sortDir,
-        filtro_codigo, filtro_nombre, filtro_marca, filtro_modelo, filtro_subtipo, filtro_estado,
+        filtro_codigo, filtro_nombre, filtro_marca, filtro_modelo, filtro_subtipo, filtro_estado, operativo,
       } = req.query;
 
       if (page !== undefined) {
@@ -69,7 +71,9 @@ export class ProductoController {
       }
 
       if (limit === undefined) {
-        const productos = await this.productoService.getAllProductos(tenantId);
+        const productos = operativo === 'true'
+          ? await this.productoService.getAllProductos(tenantId, true)
+          : await this.productoService.getAllProductos(tenantId);
         res.status(200).json(successResponse(productos));
         return;
       }
@@ -80,6 +84,26 @@ export class ProductoController {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ProductoController] getAllProductos:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  deleteProducto = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const producto = await this.productoService.eliminarProducto(req.params.id, tenantId);
+      if (!producto) {
+        res.status(404).json(errorResponse('Producto no encontrado'));
+        return;
+      }
+      res.status(200).json(successResponse(producto));
+    } catch (error: unknown) {
+      if (error instanceof BusinessError) {
+        res.status(400).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('[ProductoController] deleteProducto:', error);
       res.status(500).json(errorResponse(message));
     }
   };

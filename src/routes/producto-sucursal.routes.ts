@@ -10,5 +10,6 @@ router.get('/valores-unicos',  authMiddleware, controller.getValoresUnicos);
 router.get('/:id',             authMiddleware, controller.getById);
 router.post('/',     authMiddleware, controller.create);
 router.patch('/:id', authMiddleware, controller.update);
+router.delete('/:id', authMiddleware, controller.delete);
 
 export default router;

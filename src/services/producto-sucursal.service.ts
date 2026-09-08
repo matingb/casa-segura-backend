@@ -36,12 +36,12 @@ export function validarMargenMinimoConfiguracion(
 export class ProductoSucursalService {
   private repo = new ProductoSucursalRepository();
 
-  async getAll(tenantId: string) {
-    return this.repo.findAll(tenantId);
+  async getAll(tenantId: string, operativo = false) {
+    return this.repo.findAll(tenantId, operativo);
   }
 
-  async getPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string) {
-    return this.repo.findPaginated(tenantId, limit, offset, search, sucursalId);
+  async getPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string, operativo = false) {
+    return this.repo.findPaginated(tenantId, limit, offset, search, sucursalId, operativo);
   }
 
   async getPaginatedWithTotal(
@@ -52,9 +52,10 @@ export class ProductoSucursalService {
     sucursalId?: string,
     filtros?: ProductoSucursalFiltros,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    operativo = false
   ) {
-    return this.repo.findPaginatedWithTotal(tenantId, limit, offset, search, sucursalId, filtros, sortBy, sortDir);
+    return this.repo.findPaginatedWithTotal(tenantId, limit, offset, search, sucursalId, filtros, sortBy, sortDir, operativo);
   }
 
   async getValoresUnicos(tenantId: string, campo: string) {
@@ -83,5 +84,9 @@ export class ProductoSucursalService {
       margen_minimo: 'margen_minimo' in data ? data.margen_minimo : actual.margen_minimo,
     });
     return this.repo.update(id, data, tenantId);
+  }
+
+  async eliminar(id: string, tenantId: string) {
+    return this.repo.softDelete(id, tenantId);
   }
 }

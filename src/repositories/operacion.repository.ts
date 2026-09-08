@@ -2,7 +2,7 @@ import { PoolClient } from 'pg';
 import { pool } from '../config/db';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { withTransaction } from '../utils/db-transaction';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, ConflictError } from '../utils/errors';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 import { ModoReparto, CuentaRepartoResuelta, ResultadoReparto, resolverReparto } from '../utils/reparto-cuentas';
 
@@ -10,6 +10,7 @@ export interface OperacionFiltros {
   tipo?: string;
   sucursal?: string;
   usuario?: string;
+  estado?: 'activas' | 'canceladas' | 'todas';
 }
 
 const SORTABLE_COLUMNS: Record<string, string> = {
@@ -81,7 +82,7 @@ export interface OperacionCrearData {
 }
 
 export class OperacionRepository {
-  async findAll(tenantId: string, sucursalId?: string, tipoId?: string) {
+  async findAll(tenantId: string, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
     const params: unknown[] = [tenantId];
     let sucursalClause = '';
     if (sucursalId) {
@@ -93,6 +94,7 @@ export class OperacionRepository {
       params.push(tipoId);
       tipoClause = `AND o.tipo_id = $${params.length}`;
     }
+    const estadoClause = this.buildEstadoClause(estado);
     const query = `
       SELECT o.*,
              to2.nombre     AS tipo_nombre,
@@ -108,14 +110,14 @@ export class OperacionRepository {
       LEFT JOIN public.venta      v ON v.operacion_id = o.id
       LEFT JOIN public.compra     c ON c.operacion_id = o.id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-      WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause}
+      WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause}
       ORDER BY o.fecha DESC
     `;
     const { rows } = await pool.query(query, params);
     return rows;
   }
 
-  async findPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string) {
+  async findPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
     const sentinel = getLimitSentinel(limit);
     const params: unknown[] = [tenantId, sentinel, offset];
     let sucursalClause = '';
@@ -128,6 +130,7 @@ export class OperacionRepository {
       params.push(tipoId);
       tipoClause = `AND o.tipo_id = $${params.length}`;
     }
+    const estadoClause = this.buildEstadoClause(estado);
     const { rows } = await pool.query(
       `SELECT o.*,
               to2.nombre     AS tipo_nombre,
@@ -143,7 +146,7 @@ export class OperacionRepository {
        LEFT JOIN public.venta      v ON v.operacion_id = o.id
        LEFT JOIN public.compra     c ON c.operacion_id = o.id
        LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-       WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause}
+       WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause}
        ORDER BY o.fecha DESC
        LIMIT $2 OFFSET $3`,
       params
@@ -159,7 +162,8 @@ export class OperacionRepository {
     tipoId?: string,
     filtros?: OperacionFiltros,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    estado: OperacionFiltros['estado'] = 'activas'
   ) {
     const params: unknown[] = [tenantId];
     let sucursalClause = '';
@@ -172,6 +176,7 @@ export class OperacionRepository {
       params.push(tipoId);
       tipoClause = `AND o.tipo_id = $${params.length}`;
     }
+    const estadoClause = this.buildEstadoClause(estado);
 
     const filterClauses: string[] = [];
     if (filtros?.tipo) {
@@ -199,7 +204,7 @@ export class OperacionRepository {
       LEFT JOIN public.venta      v ON v.operacion_id = o.id
       LEFT JOIN public.compra     c ON c.operacion_id = o.id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-      WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause} ${filtersSql}
+      WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
@@ -217,7 +222,7 @@ export class OperacionRepository {
       LEFT JOIN public.venta      v ON v.operacion_id = o.id
       LEFT JOIN public.compra     c ON c.operacion_id = o.id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-      WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause} ${filtersSql}
+      WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -429,6 +434,152 @@ export class OperacionRepository {
     });
 
     return this.findById(tenantId, operacionId);
+  }
+
+  async cancelar(tenantId: string, authId: string, id: string) {
+    await withTransaction(async (client) => {
+      const { rows: opRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, to2.nombre AS tipo_nombre, us.sucursal_id
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         JOIN public.usuario_sucursal us ON us.id = o.usuario_sucursal_id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE`,
+        [id, tenantId]
+      );
+      const operacion = opRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) throw new ConflictError('La operación ya fue cancelada.');
+
+      const canceladorId = await this.resolverUsuarioSucursal(
+        client, tenantId, authId, operacion.sucursal_id as string
+      );
+      const { rows: detalleRows } = await client.query(
+        `SELECT od.producto_sucursal_id, od.cantidad, ps.producto_id
+         FROM public.operacion_detalle od
+         JOIN public.producto_sucursal ps ON ps.id = od.producto_sucursal_id
+         WHERE od.operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const { rows: cuentaRows } = await client.query(
+        `SELECT cuenta_financiera_id, monto_ars
+         FROM public.operacion_cuenta
+         WHERE operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const cuentas = cuentaRows.map((row) => ({
+        cuenta_financiera_id: row.cuenta_financiera_id as string,
+        monto_ars: Number(row.monto_ars),
+      }));
+
+      switch (operacion.tipo_nombre) {
+        case 'Compra':
+          await this.revertirCompra(client, detalleRows);
+          await this.ajustarSaldos(client, cuentas, 'credito');
+          break;
+        case 'Venta':
+          await this.revertirVenta(client, detalleRows);
+          await this.ajustarSaldos(client, cuentas, 'debito');
+          break;
+        case 'Traslado': {
+          const { rows: trasladoRows } = await client.query(
+            'SELECT sucursal_destino_id FROM public.traslado WHERE operacion_id = $1',
+            [id]
+          );
+          if (!trasladoRows[0]) throw new BusinessError('No se encontró el destino del traslado.');
+          await this.revertirTraslado(client, detalleRows, trasladoRows[0].sucursal_destino_id as string);
+          // Si hay cuentas persistidas, hubo un importe financiero que revertir.
+          await this.ajustarSaldos(client, cuentas, 'credito');
+          break;
+        }
+        case 'Movimiento': {
+          const { rows: movimientoRows } = await client.query(
+            'SELECT tipo FROM public.movimiento WHERE operacion_id = $1',
+            [id]
+          );
+          if (!movimientoRows[0]) throw new BusinessError('No se encontró el detalle del movimiento.');
+          await this.ajustarSaldos(client, cuentas, movimientoRows[0].tipo === 'ingreso' ? 'debito' : 'credito');
+          break;
+        }
+        default:
+          throw new BusinessError(`La cancelación aún no está definida para ${operacion.tipo_nombre}.`);
+      }
+
+      await client.query(
+        `UPDATE public.operacion
+         SET cancelled_at = NOW(), cancelled_by_usuario_sucursal_id = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [id, canceladorId]
+      );
+    });
+    return this.findById(tenantId, id);
+  }
+
+  private buildEstadoClause(estado: OperacionFiltros['estado']): string {
+    if (estado === 'canceladas') return 'AND o.cancelled_at IS NOT NULL';
+    if (estado === 'todas') return '';
+    return 'AND o.cancelled_at IS NULL';
+  }
+
+  private async revertirCompra(client: PoolClient, items: Array<{ producto_sucursal_id: string; cantidad: unknown }>) {
+    for (const item of items) {
+      const cantidad = Number(item.cantidad);
+      const { rows } = await client.query(
+        `SELECT ps.cantidad_disponible, p.nombre
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.id = $1 FOR UPDATE`,
+        [item.producto_sucursal_id]
+      );
+      if (!rows[0] || Number(rows[0].cantidad_disponible) < cantidad) {
+        throw new BusinessError(`No se puede cancelar la compra: el stock de ${rows[0]?.nombre ?? item.producto_sucursal_id} ya fue utilizado.`);
+      }
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible - $1 WHERE id = $2',
+        [cantidad, item.producto_sucursal_id]
+      );
+    }
+  }
+
+  private async revertirVenta(client: PoolClient, items: Array<{ producto_sucursal_id: string; cantidad: unknown }>) {
+    for (const item of items) {
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible + $1 WHERE id = $2',
+        [Number(item.cantidad), item.producto_sucursal_id]
+      );
+    }
+  }
+
+  private async revertirTraslado(
+    client: PoolClient,
+    items: Array<{ producto_sucursal_id: string; cantidad: unknown; producto_id: string }>,
+    sucursalDestinoId: string
+  ) {
+    for (const item of items) {
+      const { rows: destinoRows } = await client.query(
+        `SELECT ps.id, ps.cantidad_disponible, p.nombre
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.producto_id = $1 AND ps.sucursal_id = $2
+         FOR UPDATE`,
+        [item.producto_id, sucursalDestinoId]
+      );
+      const destino = destinoRows[0];
+      const cantidad = Number(item.cantidad);
+      if (!destino || Number(destino.cantidad_disponible) < cantidad) {
+        throw new BusinessError(`No se puede cancelar el traslado: el stock de ${destino?.nombre ?? item.producto_id} ya fue utilizado en destino.`);
+      }
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible - $1 WHERE id = $2',
+        [cantidad, destino.id]
+      );
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible + $1 WHERE id = $2',
+        [cantidad, item.producto_sucursal_id]
+      );
+    }
   }
 
   /**
@@ -730,7 +881,11 @@ export class OperacionRepository {
     }
   }
 
-  private async ajustarSaldos(client: PoolClient, cuentas: CuentaRepartoResuelta[], direccion: 'debito' | 'credito') {
+  private async ajustarSaldos(
+    client: PoolClient,
+    cuentas: Array<Pick<CuentaRepartoResuelta, 'cuenta_financiera_id' | 'monto_ars'>>,
+    direccion: 'debito' | 'credito'
+  ) {
     const signo = direccion === 'debito' ? -1 : 1;
     for (const cuenta of cuentas) {
       await client.query('SELECT id FROM public.cuenta_financiera WHERE id = $1 FOR UPDATE', [cuenta.cuenta_financiera_id]);

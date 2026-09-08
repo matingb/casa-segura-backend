@@ -4,7 +4,7 @@ import { OperacionFiltros } from '../repositories/operacion.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, ConflictError } from '../utils/errors';
 import { TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new OperacionService();
@@ -19,6 +19,7 @@ export interface OperacionesQuery {
   sortDir?: string;
   filtro_sucursal?: string;
   filtro_usuario?: string;
+  filtro_estado?: 'activas' | 'canceladas' | 'todas';
 }
 
 export interface ValoresUnicosQuery {
@@ -49,7 +50,10 @@ export class OperacionController {
   getAll = async (req: TypedRequestQuery<OperacionesQuery>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const { limit, offset, sucursalId, tipoId, page, sortBy, sortDir, filtro_sucursal, filtro_usuario } = req.query;
+      const { limit, offset, sucursalId, tipoId, page, sortBy, sortDir, filtro_sucursal, filtro_usuario, filtro_estado } = req.query;
+      const estado = filtro_estado === 'activas' || filtro_estado === 'canceladas' || filtro_estado === 'todas'
+        ? filtro_estado
+        : undefined;
 
       if (page !== undefined) {
         const normalizedLimit = normalizePaginationLimit(limit);
@@ -59,9 +63,9 @@ export class OperacionController {
           sucursal: filtro_sucursal,
           usuario: filtro_usuario,
         };
-        const result = await service.getPaginatedWithTotal(
-          tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, filtros, sortBy, sortDir
-        );
+        const result = estado
+          ? await service.getPaginatedWithTotal(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, filtros, sortBy, sortDir, estado)
+          : await service.getPaginatedWithTotal(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, filtros, sortBy, sortDir);
         res.status(200).json({
           status: 'success',
           data: result.items,
@@ -76,17 +80,47 @@ export class OperacionController {
       }
 
       if (limit === undefined) {
-        const data = await service.getAll(tenantId, sucursalId, tipoId);
+        const data = estado
+          ? await service.getAll(tenantId, sucursalId, tipoId, estado)
+          : await service.getAll(tenantId, sucursalId, tipoId);
         res.status(200).json({ status: 'success', data });
         return;
       }
       const normalizedLimit = normalizePaginationLimit(limit);
       const parsedOffset = Math.max(0, Number(offset) || 0);
-      const result = await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId);
+      const result = estado
+        ? await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, estado)
+        : await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId);
       res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in OperacionController.getAll:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  cancelar = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const authId = req.user!.id;
+      const tenantId = await getTenantIdByAuthId(authId);
+      const data = await service.cancelar(tenantId, authId, req.params.id);
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.cancelar:', error);
       res.status(500).json(errorResponse(message));
     }
   };
