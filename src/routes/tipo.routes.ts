@@ -6,5 +6,7 @@ const router = Router();
 const controller = new TipoController();
 
 router.get('/', authMiddleware, controller.getAll);
+router.post('/', authMiddleware, controller.create);
+router.delete('/:id', authMiddleware, controller.delete);
 
 export default router;
