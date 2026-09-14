@@ -643,7 +643,14 @@ export class OperacionRepository {
       const descuento = Number(data.venta?.descuento_ars ?? 0);
       return subtotal - descuento;
     }
-    return Number(data.compra?.total_ars ?? data.compra?.subtotal_ars ?? 0);
+    const subtotalCompra = Number(data.compra?.subtotal_ars ?? 0);
+    if (subtotalCompra > 0) return subtotalCompra;
+    // Sin subtotal declarado, la base es la suma de los ítems: `total_ars` no
+    // sirve porque ya trae los recargos de cada cuenta sumados.
+    return (data.items ?? []).reduce(
+      (acc, item) => acc + Number(item.cantidad ?? 0) * Number(item.costo_unit_ars ?? 0),
+      0
+    );
   }
 
   private async resolverUsuarioSucursal(
@@ -832,14 +839,9 @@ export class OperacionRepository {
       if (!rows[0]) {
         throw new BusinessError(`El producto en stock ${item.producto_sucursal_id} no existe`);
       }
-      if (rows[0].cantidad_disponible < item.cantidad) {
-        const { rows: prodRows } = await client.query(
-          'SELECT nombre FROM public.producto WHERE id = $1',
-          [rows[0].producto_id]
-        );
-        const nombre = prodRows[0]?.nombre ?? item.producto_sucursal_id;
-        throw new BusinessError(`Stock insuficiente para ${nombre}`);
-      }
+      // La venta se registra aunque no haya stock suficiente: el disponible
+      // puede quedar negativo y se corrige con una compra o un ajuste manual.
+      // El formulario avisa antes de registrar, pero no lo impide.
       await client.query(
         'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible - $1 WHERE id = $2',
         [item.cantidad, item.producto_sucursal_id]
@@ -857,7 +859,14 @@ export class OperacionRepository {
         throw new BusinessError(`El producto en stock ${item.producto_sucursal_id} no existe`);
       }
       if (rows[0].cantidad_disponible < item.cantidad) {
-        throw new BusinessError(`Stock insuficiente para trasladar el producto ${rows[0].producto_id}`);
+        const { rows: prodRows } = await client.query(
+          'SELECT nombre FROM public.producto WHERE id = $1',
+          [rows[0].producto_id]
+        );
+        const nombre = prodRows[0]?.nombre ?? rows[0].producto_id;
+        throw new BusinessError(
+          `Stock insuficiente para trasladar ${nombre}: hay ${rows[0].cantidad_disponible} y se piden ${item.cantidad}.`
+        );
       }
 
       const { rows: destRows } = await client.query(
