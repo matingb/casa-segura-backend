@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response } from 'express';
 import { SucursalController } from './sucursal.controller';
 import { SucursalService } from '../services/sucursal.service';
-import { getTenantIdByAuthId } from '../utils/tenant';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 vi.mock('../services/sucursal.service');
-vi.mock('../utils/tenant');
+vi.mock('../services/sucursal-alcance.service');
 
 describe('SucursalController', () => {
   let controller: SucursalController;
@@ -13,6 +13,13 @@ describe('SucursalController', () => {
   let res: Partial<Response>;
   const TENANT_ID = 'tenant-123';
   const AUTH_ID = 'auth-123';
+  const alcance = {
+    authId: AUTH_ID,
+    usuarioId: 'u1',
+    tenantId: TENANT_ID,
+    sucursalIds: ['s1'],
+    sucursalesActivasIds: ['s1'],
+  };
 
   beforeEach(() => {
     controller = new SucursalController();
@@ -23,7 +30,7 @@ describe('SucursalController', () => {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
     };
-    vi.mocked(getTenantIdByAuthId).mockResolvedValue(TENANT_ID);
+    vi.mocked(resolverSucursalAlcance).mockResolvedValue(alcance);
   });
 
   it('debería retornar 200 y las sucursales asignadas al usuario', async () => {
@@ -45,14 +52,14 @@ describe('SucursalController', () => {
 
     await controller.getAllByUser(req as Request, res as Response);
 
-    expect(getTenantIdByAuthId).toHaveBeenCalledWith(AUTH_ID);
+    expect(resolverSucursalAlcance).toHaveBeenCalledWith(AUTH_ID);
     expect(SucursalService.prototype.getByUser).toHaveBeenCalledWith(AUTH_ID, TENANT_ID);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ status: 'success', data: mockSucursales });
   });
 
   it('debería responder con 500 ante un error', async () => {
-    vi.mocked(getTenantIdByAuthId).mockRejectedValue(new Error('DB Error'));
+    vi.mocked(resolverSucursalAlcance).mockRejectedValue(new Error('DB Error'));
 
     await controller.getAllByUser(req as Request, res as Response);
 

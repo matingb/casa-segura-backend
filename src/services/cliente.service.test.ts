@@ -24,7 +24,7 @@ describe('ClienteService', () => {
 
       const result = await service.createCliente(data, TENANT_ID);
 
-      expect(ClienteRepository.prototype.create).toHaveBeenCalledWith({ ...data, tenant_id: TENANT_ID });
+      expect(ClienteRepository.prototype.create).toHaveBeenCalledWith({ ...data, tenant_id: TENANT_ID }, undefined, undefined);
       expect(result).toMatchObject({ id: 'cli-1' });
     });
 
@@ -139,7 +139,7 @@ describe('ClienteService', () => {
 
       const result = await service.desactivarCliente('cli-1', TENANT_ID);
 
-      expect(ClienteRepository.prototype.desactivar).toHaveBeenCalledWith('cli-1', TENANT_ID);
+      expect(ClienteRepository.prototype.desactivar).toHaveBeenCalledWith('cli-1', TENANT_ID, undefined);
       expect(result).toMatchObject({ activo: false });
     });
   });

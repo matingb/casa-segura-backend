@@ -23,6 +23,13 @@ describe('ClienteDescuentoService', () => {
     service = new ClienteDescuentoService();
     vi.mocked(ClienteDescuentoRepository.prototype.existeCliente).mockResolvedValue(true);
     vi.mocked(ClienteDescuentoRepository.prototype.existeProducto).mockResolvedValue(true);
+    vi.mocked(ClienteRepository.prototype.findById).mockResolvedValue({
+      id: CLIENTE_ID,
+      tenant_id: TENANT_ID,
+      nombre: 'Acme Corp',
+      descuento_porcentaje: 8,
+      sucursales: [{ id: 'suc-1', nombre: 'Central' }],
+    } as any);
     vi.mocked(TipoRepository.prototype.existeEnTenant).mockResolvedValue(true);
     vi.mocked(SubtipoRepository.prototype.existeEnTenant).mockResolvedValue(true);
   });

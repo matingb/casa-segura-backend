@@ -2,12 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Response } from 'express';
 import { ClienteController } from './cliente.controller';
 import { ClienteService } from '../services/cliente.service';
-import { getTenantIdByAuthId } from '../utils/tenant';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 import { errorResponse, successResponse } from '../utils/response';
 import { BusinessError } from '../utils/errors';
 
 vi.mock('../services/cliente.service');
-vi.mock('../utils/tenant');
+vi.mock('../services/sucursal-alcance.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/sucursal-alcance.service')>();
+  return {
+    ...actual,
+    resolverSucursalAlcance: vi.fn(),
+  };
+});
 vi.mock('../utils/response', () => ({
   errorResponse: vi.fn((msg) => ({ error: msg })),
   successResponse: vi.fn((data) => ({ data })),
@@ -20,6 +26,13 @@ describe('ClienteController', () => {
   let res: Partial<Response>;
   const TENANT_ID = 'tenant-123';
   const AUTH_ID = 'auth-123';
+  const alcance = {
+    authId: AUTH_ID,
+    usuarioId: 'u1',
+    tenantId: TENANT_ID,
+    sucursalIds: ['suc-1'],
+    sucursalesActivasIds: ['suc-1'],
+  };
 
   beforeEach(() => {
     controller = new ClienteController();
@@ -33,7 +46,7 @@ describe('ClienteController', () => {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
     };
-    vi.mocked(getTenantIdByAuthId).mockResolvedValue(TENANT_ID);
+    vi.mocked(resolverSucursalAlcance).mockResolvedValue(alcance);
   });
 
   describe('getAllClientes', () => {
@@ -43,8 +56,8 @@ describe('ClienteController', () => {
 
       await controller.getAllClientes(req, res as Response);
 
-      expect(getTenantIdByAuthId).toHaveBeenCalledWith(AUTH_ID);
-      expect(ClienteService.prototype.getAllClientes).toHaveBeenCalledWith(TENANT_ID, false);
+      expect(resolverSucursalAlcance).toHaveBeenCalledWith(AUTH_ID);
+      expect(ClienteService.prototype.getAllClientes).toHaveBeenCalledWith(TENANT_ID, false, alcance);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockClientes));
     });
@@ -55,7 +68,7 @@ describe('ClienteController', () => {
 
       await controller.getAllClientes(req, res as Response);
 
-      expect(ClienteService.prototype.getAllClientes).toHaveBeenCalledWith(TENANT_ID, true);
+      expect(ClienteService.prototype.getAllClientes).toHaveBeenCalledWith(TENANT_ID, true, alcance);
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
@@ -66,7 +79,7 @@ describe('ClienteController', () => {
 
       await controller.getAllClientes(req, res as Response);
 
-      expect(ClienteService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 2, 0, undefined);
+      expect(ClienteService.prototype.getPaginated).toHaveBeenCalledWith(TENANT_ID, 2, 0, undefined, alcance);
       expect(res.json).toHaveBeenCalledWith({ status: 'success', data: mockItems, page: { hasMore: true } });
     });
 
@@ -116,7 +129,8 @@ describe('ClienteController', () => {
           estado: 'Activo',
         },
         'nombre',
-        'desc'
+        'desc',
+        alcance
       );
     });
 
@@ -144,7 +158,7 @@ describe('ClienteController', () => {
 
       await controller.getValoresUnicos(req, res as Response);
 
-      expect(ClienteService.prototype.getValoresUnicos).toHaveBeenCalledWith(TENANT_ID, 'provincia');
+      expect(ClienteService.prototype.getValoresUnicos).toHaveBeenCalledWith(TENANT_ID, 'provincia', alcance);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(['Buenos Aires', 'Córdoba']));
     });
@@ -158,7 +172,7 @@ describe('ClienteController', () => {
 
       await controller.getCliente(req, res as Response);
 
-      expect(ClienteService.prototype.getCliente).toHaveBeenCalledWith('cli-1', TENANT_ID);
+      expect(ClienteService.prototype.getCliente).toHaveBeenCalledWith('cli-1', TENANT_ID, alcance);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockCliente));
     });
@@ -170,7 +184,7 @@ describe('ClienteController', () => {
       await controller.getCliente(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith(errorResponse('Cliente no encontrado'));
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'El recurso no está disponible.', code: 'RECURSO_NO_DISPONIBLE' }));
     });
   });
 
@@ -182,7 +196,7 @@ describe('ClienteController', () => {
 
       await controller.createCliente(req, res as Response);
 
-      expect(ClienteService.prototype.createCliente).toHaveBeenCalledWith(req.body, TENANT_ID);
+      expect(ClienteService.prototype.createCliente).toHaveBeenCalledWith(req.body, TENANT_ID, alcance);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockCliente));
     });
@@ -209,7 +223,7 @@ describe('ClienteController', () => {
 
       await controller.updateCliente(req, res as Response);
 
-      expect(ClienteService.prototype.updateCliente).toHaveBeenCalledWith('cli-1', req.body, TENANT_ID);
+      expect(ClienteService.prototype.updateCliente).toHaveBeenCalledWith('cli-1', req.body, TENANT_ID, alcance);
       expect(res.status).toHaveBeenCalledWith(200);
     });
 
@@ -243,7 +257,7 @@ describe('ClienteController', () => {
 
       await controller.deleteCliente(req, res as Response);
 
-      expect(ClienteService.prototype.desactivarCliente).toHaveBeenCalledWith('cli-1', TENANT_ID);
+      expect(ClienteService.prototype.desactivarCliente).toHaveBeenCalledWith('cli-1', TENANT_ID, alcance);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockCliente));
     });

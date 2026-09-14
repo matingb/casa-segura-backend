@@ -37,12 +37,16 @@ describe('RegionService', () => {
 
       await service.crearRegion(TENANT_ID, { nombre: '  Norte  ', descuento: 0, sucursal_ids: ['suc-1', 'suc-2', 'suc-1'] });
 
-      expect(RegionRepository.prototype.create).toHaveBeenCalledWith(TENANT_ID, {
-        nombre: 'Norte',
-        descuento: 0,
-        activo: true,
-        sucursal_ids: ['suc-1', 'suc-2'],
-      });
+      expect(RegionRepository.prototype.create).toHaveBeenCalledWith(
+        TENANT_ID,
+        {
+          nombre: 'Norte',
+          descuento: 0,
+          activo: true,
+          sucursal_ids: ['suc-1', 'suc-2'],
+        },
+        undefined
+      );
     });
 
     it('falla si el nombre está vacío', async () => {
@@ -110,7 +114,7 @@ describe('RegionService', () => {
 
       await service.actualizarRegion('reg-1', TENANT_ID, { sucursal_ids: [SUCURSAL_ID, 'suc-2'] });
 
-      expect(RegionRepository.prototype.update).toHaveBeenCalledWith('reg-1', TENANT_ID, { sucursal_ids: [SUCURSAL_ID, 'suc-2'] });
+      expect(RegionRepository.prototype.update).toHaveBeenCalledWith('reg-1', TENANT_ID, { sucursal_ids: [SUCURSAL_ID, 'suc-2'] }, undefined);
     });
 
     it('no deja quitar un punto de venta que algún cliente usa con la región', async () => {

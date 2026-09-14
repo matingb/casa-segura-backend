@@ -17,7 +17,7 @@ describe('ListaPreciosService: cero y margen', () => {
   it('conserva el cero y advierte que no cubre un costo con margen configurado', async () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
       if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central' }] };
-      if (sql.includes('FROM public.cliente WHERE')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: 0 }] };
+      if (sql.includes('FROM public.cliente c')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: 0 }] };
       if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ id: 'stock', producto_id: 'producto', nombre: 'Cero explícito', moneda_precio_efectiva: 'USD', precio_efectivo_usd: '0.0000', precio_efectivo_confirmado: true, costo_reposicion: '50000.00', margen_minimo: '10.00' }] };
       return { rows: [] };
     }) as typeof pool.query);
@@ -45,7 +45,7 @@ describe('ListaPreciosService: descuentos generales', () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
       if (sql.includes('descuento_categoria_sucursal')) return { rows: excepciones };
       if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central', descuento: sucursal }] };
-      if (sql.includes('FROM public.cliente WHERE')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: null }] };
+      if (sql.includes('FROM public.cliente c')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: null }] };
       if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ ...producto, ...fila }] };
       if (sql.includes('cliente_descuento_categoria')) return { rows: categoriasCliente };
       if (sql.includes('cliente_region')) return { rows: region ? [region] : [] };
@@ -165,7 +165,7 @@ describe('ListaPreciosService: descuentos generales', () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
       if (sql.includes('descuento_categoria_sucursal')) return { rows: [] };
       if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central', descuento: null }] };
-      if (sql.includes('FROM public.cliente WHERE')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: null }] };
+      if (sql.includes('FROM public.cliente c')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: null }] };
       if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ ...producto, descuento_base: '20.00' }] };
       if (sql.includes('cliente_descuento_producto')) return { rows: [{ producto_id: 'producto', porcentaje: '5.00' }] };
       return { rows: [] };
