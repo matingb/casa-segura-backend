@@ -32,6 +32,7 @@ export interface OperacionCrearBody {
   tipo?: string;
   sucursal_id?: string;
   fecha?: string;
+  registrar_finanzas_ahora?: boolean;
   modo_reparto?: 'porcentaje' | 'monto';
   items?: Array<{ producto_sucursal_id?: string; cantidad?: number; [key: string]: unknown }>;
   cuentas?: Array<{
@@ -44,6 +45,18 @@ export interface OperacionCrearBody {
   venta?: Record<string, unknown>;
   traslado?: { sucursal_destino_id?: string; [key: string]: unknown };
   movimiento?: { tipo?: string; monto_ars?: number; [key: string]: unknown };
+}
+
+export interface RegistrarPagoBody {
+  fecha_efectiva?: string;
+  observacion?: string | null;
+  cuentas?: Array<{
+    cuenta_financiera_id?: string;
+    monto_ars?: number;
+    monto_usd?: number;
+    fecha_efectiva?: string;
+    observacion?: string | null;
+  }>;
 }
 
 export class OperacionController {
@@ -121,6 +134,91 @@ export class OperacionController {
       }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in OperacionController.cancelar:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  registrarPago = async (
+    req: TypedRequestBody<RegistrarPagoBody, { id: string }>,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const body = req.body;
+      if (!body.cuentas || body.cuentas.length === 0) {
+        res.status(400).json(errorResponse('Indicá al menos una cuenta financiera para registrar el pago/cobro.'));
+        return;
+      }
+      if (body.fecha_efectiva && Number.isNaN(Date.parse(body.fecha_efectiva))) {
+        res.status(400).json(errorResponse('La fecha efectiva no es válida.'));
+        return;
+      }
+      for (const cuenta of body.cuentas) {
+        if (cuenta.fecha_efectiva && Number.isNaN(Date.parse(cuenta.fecha_efectiva))) {
+          res.status(400).json(errorResponse('La fecha efectiva no es válida.'));
+          return;
+        }
+        if (!cuenta.cuenta_financiera_id || !(Number(cuenta.monto_ars) > 0)) {
+          res.status(400).json(errorResponse('Cada pago/cobro requiere una cuenta financiera y un monto mayor a cero.'));
+          return;
+        }
+      }
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const data = await service.registrarPago(tenantId, req.params.id, {
+        fecha_efectiva: body.fecha_efectiva,
+        observacion: body.observacion,
+        cuentas: body.cuentas.map((cuenta) => ({
+          cuenta_financiera_id: cuenta.cuenta_financiera_id!,
+          monto_ars: Number(cuenta.monto_ars),
+          monto_usd: cuenta.monto_usd,
+          ...(cuenta.fecha_efectiva ? { fecha_efectiva: cuenta.fecha_efectiva } : {}),
+          ...(cuenta.observacion !== undefined ? { observacion: cuenta.observacion } : {}),
+        })),
+      });
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.registrarPago:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  eliminarPago = async (
+    req: TypedRequestParams<{ id: string; pagoId: string }>,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const data = await service.eliminarPago(tenantId, req.params.id, req.params.pagoId);
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' || error.message === 'Pago/cobro no encontrado' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.eliminarPago:', error);
       res.status(500).json(errorResponse(message));
     }
   };
@@ -215,6 +313,19 @@ export class OperacionController {
           res.status(400).json(errorResponse('El campo "cuentas" es requerido para movimientos'));
           return;
         }
+      }
+
+      const esCompraOVenta = body.tipo === 'compra' || body.tipo === 'venta';
+      const registrarFinanzasAhora = !esCompraOVenta
+        || body.registrar_finanzas_ahora === true
+        || (body.registrar_finanzas_ahora === undefined && (body.cuentas?.length ?? 0) > 0);
+      if (esCompraOVenta && !registrarFinanzasAhora && (body.cuentas?.length ?? 0) > 0) {
+        res.status(400).json(errorResponse('Una operación pendiente no puede incluir cuentas financieras.'));
+        return;
+      }
+      if (esCompraOVenta && registrarFinanzasAhora && (!body.cuentas || body.cuentas.length === 0)) {
+        res.status(400).json(errorResponse('Elegí al menos una cuenta financiera para registrar el pago/cobro ahora.'));
+        return;
       }
 
       // Reparto entre cuentas financieras.

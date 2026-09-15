@@ -9,6 +9,8 @@ router.get('/',                authMiddleware, controller.getAll);
 router.get('/valores-unicos',  authMiddleware, controller.getValoresUnicos);
 router.get('/:id',             authMiddleware, controller.getById);
 router.post('/',    authMiddleware, controller.create);
+router.post('/:id/pagos', authMiddleware, controller.registrarPago);
+router.delete('/:id/pagos/:pagoId', authMiddleware, controller.eliminarPago);
 router.post('/:id/cancelar', authMiddleware, controller.cancelar);
 
 export default router;

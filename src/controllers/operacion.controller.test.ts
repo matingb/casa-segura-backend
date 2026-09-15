@@ -135,6 +135,86 @@ describe('OperacionController', () => {
     });
   });
 
+  describe('registrarPago', () => {
+    it('registra un pago parcial con la cuenta, fecha y observación indicadas', async () => {
+      const mockOperacion = { id: 'op-1', estado_financiero: 'PARCIAL' };
+      vi.mocked(OperacionService.prototype.registrarPago).mockResolvedValue(mockOperacion as any);
+      req.params = { id: 'op-1' };
+      req.body = {
+        fecha_efectiva: '2026-09-14',
+        observacion: 'Primera cuota',
+        cuentas: [{ cuenta_financiera_id: 'cf-1', monto_ars: 250 }],
+      };
+
+      await controller.registrarPago(req, res as Response);
+
+      expect(OperacionService.prototype.registrarPago).toHaveBeenCalledWith(TENANT_ID, 'op-1', {
+        fecha_efectiva: '2026-09-14',
+        observacion: 'Primera cuota',
+        cuentas: [{ cuenta_financiera_id: 'cf-1', monto_ars: 250, monto_usd: undefined }],
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('conserva la fecha y observación de cada movimiento', async () => {
+      const mockOperacion = { id: 'op-1', estado_financiero: 'PARCIAL' };
+      vi.mocked(OperacionService.prototype.registrarPago).mockResolvedValue(mockOperacion as any);
+      req.params = { id: 'op-1' };
+      req.body = {
+        cuentas: [
+          { cuenta_financiera_id: 'cf-1', monto_ars: 200, fecha_efectiva: '2026-09-14', observacion: 'Efectivo' },
+          { cuenta_financiera_id: 'cf-2', monto_ars: 50, fecha_efectiva: '2026-09-15', observacion: 'Transferencia' },
+        ],
+      };
+
+      await controller.registrarPago(req, res as Response);
+
+      expect(OperacionService.prototype.registrarPago).toHaveBeenCalledWith(TENANT_ID, 'op-1', {
+        fecha_efectiva: undefined,
+        observacion: undefined,
+        cuentas: [
+          { cuenta_financiera_id: 'cf-1', monto_ars: 200, monto_usd: undefined, fecha_efectiva: '2026-09-14', observacion: 'Efectivo' },
+          { cuenta_financiera_id: 'cf-2', monto_ars: 50, monto_usd: undefined, fecha_efectiva: '2026-09-15', observacion: 'Transferencia' },
+        ],
+      });
+    });
+
+    it('rechaza un pago/cobro sin cuenta financiera', async () => {
+      vi.mocked(OperacionService.prototype.registrarPago).mockClear();
+      req.params = { id: 'op-1' };
+      req.body = { cuentas: [] };
+
+      await controller.registrarPago(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(OperacionService.prototype.registrarPago).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('eliminarPago', () => {
+    it('elimina un pago/cobro individual de la operación', async () => {
+      const mockOperacion = { id: 'op-1', estado_financiero: 'PENDIENTE' };
+      vi.mocked(OperacionService.prototype.eliminarPago).mockResolvedValue(mockOperacion as any);
+      req.params = { id: 'op-1', pagoId: 'pago-1' };
+
+      await controller.eliminarPago(req, res as Response);
+
+      expect(OperacionService.prototype.eliminarPago).toHaveBeenCalledWith(TENANT_ID, 'op-1', 'pago-1');
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ status: 'success', data: mockOperacion });
+    });
+
+    it('devuelve 404 cuando el pago/cobro no existe', async () => {
+      vi.mocked(OperacionService.prototype.eliminarPago).mockRejectedValue(new BusinessError('Pago/cobro no encontrado'));
+      req.params = { id: 'op-1', pagoId: 'pago-inexistente' };
+
+      await controller.eliminarPago(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Pago/cobro no encontrado' });
+    });
+  });
+
   describe('create', () => {
     const baseVenta = {
       tipo: 'venta',

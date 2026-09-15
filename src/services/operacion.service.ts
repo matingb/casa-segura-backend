@@ -1,4 +1,4 @@
-import { OperacionRepository, OperacionCrearData, OperacionFiltros } from '../repositories/operacion.repository';
+import { OperacionRepository, OperacionCrearData, OperacionFiltros, RegistrarPagoData } from '../repositories/operacion.repository';
 
 const TIPO_NOMBRE: Record<string, OperacionCrearData['tipo']> = {
   compra: 'Compra',
@@ -47,6 +47,14 @@ export class OperacionService {
 
   async cancelar(tenantId: string, authId: string, id: string) {
     return this.repo.cancelar(tenantId, authId, id);
+  }
+
+  async registrarPago(tenantId: string, id: string, data: RegistrarPagoData) {
+    return this.repo.registrarPago(tenantId, id, data);
+  }
+
+  async eliminarPago(tenantId: string, id: string, pagoId: string) {
+    return this.repo.eliminarPago(tenantId, id, pagoId);
   }
 }
 

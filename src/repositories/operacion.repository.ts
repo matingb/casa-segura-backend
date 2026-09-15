@@ -45,6 +45,8 @@ export interface OperacionCrearData {
   tipo: 'Compra' | 'Venta' | 'Traslado' | 'Movimiento';
   sucursal_id: string;
   fecha?: string;
+  /** Solo aplica a compras y ventas. Si se omite, se infiere de las cuentas recibidas. */
+  registrar_finanzas_ahora?: boolean;
   /** Cómo se reparte el total entre las cuentas. Default: 'monto'. */
   modo_reparto?: ModoReparto;
   items?: OperacionItemInput[];
@@ -79,6 +81,30 @@ export interface OperacionCrearData {
     monto_ars: number;
     monto_usd?: number | null;
   };
+}
+
+export interface RegistrarPagoData {
+  cuentas: Array<OperacionCuentaInput & {
+    fecha_efectiva?: string;
+    observacion?: string | null;
+  }>;
+  fecha_efectiva?: string;
+  observacion?: string | null;
+}
+
+export type EstadoFinanciero = 'PENDIENTE' | 'PARCIAL' | 'SALDADA' | 'SOBREPAGADA';
+
+const TOLERANCIA_FINANCIERA = 0.01;
+
+function redondearMonto(valor: number): number {
+  return Math.round(valor * 100) / 100;
+}
+
+export function calcularEstadoFinanciero(total: number, acumulado: number): EstadoFinanciero {
+  if (acumulado <= TOLERANCIA_FINANCIERA) return 'PENDIENTE';
+  if (acumulado < total - TOLERANCIA_FINANCIERA) return 'PARCIAL';
+  if (acumulado <= total + TOLERANCIA_FINANCIERA) return 'SALDADA';
+  return 'SOBREPAGADA';
 }
 
 export class OperacionRepository {
@@ -359,11 +385,13 @@ export class OperacionRepository {
         oc.porcentaje_extra,
         oc.monto_ars,
         oc.monto_usd,
+        oc.fecha_efectiva,
+        oc.observacion,
         cf.nombre AS cuenta_nombre
       FROM public.operacion_cuenta oc
       JOIN public.cuenta_financiera cf ON cf.id = oc.cuenta_financiera_id
       WHERE oc.operacion_id = $1
-      ORDER BY cf.nombre
+      ORDER BY oc.fecha_efectiva ASC, cf.nombre ASC
     `;
 
     const [{ rows: items }, { rows: cuentas }] = await Promise.all([
@@ -375,6 +403,9 @@ export class OperacionRepository {
       ...op,
       items,
       cuentas,
+      monto_pagado_ars: redondearMonto(
+        cuentas.reduce((sum, cuenta) => sum + Number(cuenta.monto_ars ?? 0), 0)
+      ),
     };
   }
 
@@ -382,16 +413,25 @@ export class OperacionRepository {
     const operacionId = await withTransaction(async (client) => {
       const usuarioSucursalId = await this.resolverUsuarioSucursal(client, tenantId, authId, data.sucursal_id);
       const tipoId = await this.resolverTipoId(client, data.tipo);
+      const esOperacionComercial = data.tipo === 'Compra' || data.tipo === 'Venta';
+      const registrarFinanzasAhora = !esOperacionComercial
+        || data.registrar_finanzas_ahora === true
+        || (data.registrar_finanzas_ahora === undefined && (data.cuentas?.length ?? 0) > 0);
 
       // El reparto entre cuentas se resuelve antes de insertar nada: define los
       // montos reales de cada cuenta y el total de la operación (con recargos).
-      const reparto = await this.resolverRepartoCuentas(client, tenantId, data);
+      const reparto = registrarFinanzasAhora
+        ? await this.resolverRepartoCuentas(client, tenantId, data)
+        : null;
+      const estadoFinanciero: EstadoFinanciero | null = esOperacionComercial
+        ? (registrarFinanzasAhora ? 'SALDADA' : 'PENDIENTE')
+        : null;
 
       const { rows: opRows } = await client.query(
-        `INSERT INTO public.operacion (tenant_id, usuario_sucursal_id, tipo_id, fecha)
-         VALUES ($1, $2, $3, COALESCE($4, NOW()))
+        `INSERT INTO public.operacion (tenant_id, usuario_sucursal_id, tipo_id, fecha, estado_financiero)
+         VALUES ($1, $2, $3, COALESCE($4, NOW()), $5)
          RETURNING id`,
-        [tenantId, usuarioSucursalId, tipoId, data.fecha ?? null]
+        [tenantId, usuarioSucursalId, tipoId, data.fecha ?? null, estadoFinanciero]
       );
       const id = opRows[0].id as string;
 
@@ -402,7 +442,7 @@ export class OperacionRepository {
       await this.insertExtension(client, id, data, reparto);
 
       if (reparto && reparto.cuentas.length > 0) {
-        await this.insertCuentas(client, id, reparto.cuentas);
+        await this.insertCuentas(client, id, reparto.cuentas, data.fecha, null);
       }
 
       const cuentasResueltas = reparto?.cuentas ?? [];
@@ -517,6 +557,135 @@ export class OperacionRepository {
     return this.findById(tenantId, id);
   }
 
+  async registrarPago(tenantId: string, id: string, data: RegistrarPagoData) {
+    await withTransaction(async (client) => {
+      const { rows: opRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, o.estado_financiero, to2.nombre AS tipo_nombre,
+                COALESCE(c.total_ars, v.total_ars) AS total_ars
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         LEFT JOIN public.compra c ON c.operacion_id = o.id
+         LEFT JOIN public.venta v ON v.operacion_id = o.id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE OF o`,
+        [id, tenantId]
+      );
+      const operacion = opRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) throw new ConflictError('No se puede registrar un pago/cobro en una operación cancelada.');
+      if (operacion.tipo_nombre !== 'Compra' && operacion.tipo_nombre !== 'Venta') {
+        throw new BusinessError('Solo las compras y ventas admiten pagos/cobros asociados.');
+      }
+      if (operacion.estado_financiero === 'SALDADA' || operacion.estado_financiero === 'SOBREPAGADA') {
+        throw new ConflictError('La operación ya está saldada y no admite otro pago/cobro.');
+      }
+
+      const total = Number(operacion.total_ars ?? 0);
+      if (!(total > 0)) throw new BusinessError('La operación no tiene un total válido para registrar el pago/cobro.');
+
+      const { rows: pagosPrevios } = await client.query(
+        `SELECT monto_ars
+         FROM public.operacion_cuenta
+         WHERE operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const acumuladoAnterior = redondearMonto(
+        pagosPrevios.reduce((sum, pago) => sum + Number(pago.monto_ars ?? 0), 0)
+      );
+      const pago = await this.resolverPagoParcial(client, tenantId, total, data.cuentas);
+      for (const [index, cuenta] of pago.cuentas.entries()) {
+        const detalle = data.cuentas[index];
+        await this.insertCuentas(
+          client,
+          id,
+          [cuenta],
+          detalle?.fecha_efectiva ?? data.fecha_efectiva,
+          detalle?.observacion ?? data.observacion
+        );
+      }
+      await this.ajustarSaldos(
+        client,
+        pago.cuentas,
+        operacion.tipo_nombre === 'Compra' ? 'debito' : 'credito'
+      );
+
+      const acumulado = redondearMonto(acumuladoAnterior + pago.total);
+      const estadoFinanciero = calcularEstadoFinanciero(total, acumulado);
+      await client.query(
+        `UPDATE public.operacion
+         SET estado_financiero = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [id, estadoFinanciero]
+      );
+    });
+    return this.findById(tenantId, id);
+  }
+
+  async eliminarPago(tenantId: string, id: string, pagoId: string) {
+    await withTransaction(async (client) => {
+      const { rows: opRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, to2.nombre AS tipo_nombre,
+                COALESCE(c.total_ars, v.total_ars) AS total_ars
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         LEFT JOIN public.compra c ON c.operacion_id = o.id
+         LEFT JOIN public.venta v ON v.operacion_id = o.id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE OF o`,
+        [id, tenantId]
+      );
+      const operacion = opRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) {
+        throw new ConflictError('No se puede eliminar un pago/cobro de una operación cancelada.');
+      }
+      if (operacion.tipo_nombre !== 'Compra' && operacion.tipo_nombre !== 'Venta') {
+        throw new BusinessError('Solo las compras y ventas admiten pagos/cobros asociados.');
+      }
+
+      // Bloquear el historial completo junto con la operación evita que un alta o
+      // una baja concurrente calcule un estado financiero desactualizado.
+      const { rows: pagos } = await client.query(
+        `SELECT id, cuenta_financiera_id, monto_ars
+         FROM public.operacion_cuenta
+         WHERE operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const pago = pagos.find((item) => item.id === pagoId);
+      if (!pago) throw new BusinessError('Pago/cobro no encontrado');
+
+      const monto = Number(pago.monto_ars ?? 0);
+      if (!(monto > 0)) throw new BusinessError('El pago/cobro no tiene un monto válido para eliminar.');
+
+      await this.ajustarSaldos(
+        client,
+        [{ cuenta_financiera_id: pago.cuenta_financiera_id, monto_ars: monto }],
+        operacion.tipo_nombre === 'Compra' ? 'credito' : 'debito'
+      );
+      await client.query(
+        `DELETE FROM public.operacion_cuenta
+         WHERE id = $1 AND operacion_id = $2`,
+        [pagoId, id]
+      );
+
+      const acumuladoRestante = redondearMonto(
+        pagos
+          .filter((item) => item.id !== pagoId)
+          .reduce((sum, item) => sum + Number(item.monto_ars ?? 0), 0)
+      );
+      const estadoFinanciero = calcularEstadoFinanciero(Number(operacion.total_ars ?? 0), acumuladoRestante);
+      await client.query(
+        `UPDATE public.operacion
+         SET estado_financiero = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [id, estadoFinanciero]
+      );
+    });
+    return this.findById(tenantId, id);
+  }
+
   private buildEstadoClause(estado: OperacionFiltros['estado']): string {
     if (estado === 'canceladas') return 'AND o.cancelled_at IS NOT NULL';
     if (estado === 'todas') return '';
@@ -619,6 +788,48 @@ export class OperacionRepository {
     const base = this.calcularBaseReparto(data, cuentas, extraPorCuenta, modo);
 
     return resolverReparto(modo, base, cuentas, extraPorCuenta);
+  }
+
+  private async resolverPagoParcial(
+    client: PoolClient,
+    tenantId: string,
+    totalOperacion: number,
+    cuentas: OperacionCuentaInput[]
+  ): Promise<{ cuentas: CuentaRepartoResuelta[]; total: number }> {
+    if (cuentas.length === 0) {
+      throw new BusinessError('Indicá al menos una cuenta financiera para registrar el pago/cobro.');
+    }
+    const ids = [...new Set(cuentas.map((cuenta) => cuenta.cuenta_financiera_id))];
+    const { rows } = await client.query(
+      `SELECT id, porcentaje_extra
+       FROM public.cuenta_financiera
+       WHERE id = ANY($1::uuid[]) AND tenant_id = $2`,
+      [ids, tenantId]
+    );
+    if (rows.length !== ids.length) {
+      throw new BusinessError('Alguna de las cuentas financieras indicadas no existe.');
+    }
+    const extraPorCuenta = new Map<string, number>(
+      rows.map((row) => [row.id as string, Number(row.porcentaje_extra ?? 0)])
+    );
+    const cuentasResueltas = cuentas.map((cuenta) => {
+      const monto = redondearMonto(Number(cuenta.monto_ars ?? 0));
+      if (!(monto > 0)) throw new BusinessError('Cada pago/cobro debe tener un monto mayor a cero.');
+      const porcentajeExtra = extraPorCuenta.get(cuenta.cuenta_financiera_id) ?? 0;
+      const base = redondearMonto(monto / (1 + porcentajeExtra / 100));
+      return {
+        cuenta_financiera_id: cuenta.cuenta_financiera_id,
+        porcentaje_venta: totalOperacion > 0 ? redondearMonto((base / totalOperacion) * 100) : 0,
+        porcentaje_extra: porcentajeExtra,
+        base_ars: base,
+        monto_ars: monto,
+        monto_usd: cuenta.monto_usd ?? null,
+      };
+    });
+    return {
+      cuentas: cuentasResueltas,
+      total: redondearMonto(cuentasResueltas.reduce((sum, cuenta) => sum + cuenta.monto_ars, 0)),
+    };
   }
 
   /** Base (sin recargos) sobre la que se reparte, según el tipo de operación. */
@@ -765,15 +976,22 @@ export class OperacionRepository {
     }
   }
 
-  private async insertCuentas(client: PoolClient, operacionId: string, cuentas: CuentaRepartoResuelta[]) {
+  private async insertCuentas(
+    client: PoolClient,
+    operacionId: string,
+    cuentas: CuentaRepartoResuelta[],
+    fechaEfectiva?: string,
+    observacion?: string | null
+  ) {
     for (const cuenta of cuentas) {
       await client.query(
         `INSERT INTO public.operacion_cuenta
-           (operacion_id, cuenta_financiera_id, porcentaje_venta, porcentaje_extra, monto_ars, monto_usd)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           (operacion_id, cuenta_financiera_id, porcentaje_venta, porcentaje_extra, monto_ars, monto_usd, fecha_efectiva, observacion)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8)`,
         [
           operacionId, cuenta.cuenta_financiera_id, cuenta.porcentaje_venta,
           cuenta.porcentaje_extra, cuenta.monto_ars, cuenta.monto_usd ?? null,
+          fechaEfectiva ?? null, observacion ?? null,
         ]
       );
     }

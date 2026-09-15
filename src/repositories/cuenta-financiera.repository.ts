@@ -115,7 +115,7 @@ export class CuentaFinancieraRepository {
         oc.porcentaje_extra,
         oc.monto_ars,
         oc.monto_usd,
-        o.fecha,
+        oc.fecha_efectiva AS fecha,
         to2.nombre AS tipo_nombre,
         CASE
           WHEN to2.nombre = 'Venta' THEN 'ingreso'
@@ -126,9 +126,9 @@ export class CuentaFinancieraRepository {
         s.nombre   AS sucursal_nombre,
         CASE 
           WHEN to2.nombre = 'Venta' THEN 
-            'Venta en ' || s.nombre
+            'Venta en ' || s.nombre || COALESCE(' - ' || NULLIF(oc.observacion, ''), '')
           WHEN to2.nombre = 'Compra' THEN 
-            'Compra a ' || COALESCE(prov.nombre, 'proveedor')
+            'Compra a ' || COALESCE(prov.nombre, 'proveedor') || COALESCE(' - ' || NULLIF(oc.observacion, ''), '')
           WHEN to2.nombre = 'Traslado' THEN 
             'Traslado a ' || COALESCE(s_dest.nombre, 'sucursal')
           WHEN to2.nombre = 'Movimiento' THEN 
@@ -149,7 +149,7 @@ export class CuentaFinancieraRepository {
       LEFT JOIN public.sucursal s_dest ON s_dest.id = t.sucursal_destino_id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
       WHERE cf.tenant_id = $1 AND oc.cuenta_financiera_id = $2
-      ORDER BY o.fecha DESC
+      ORDER BY oc.fecha_efectiva DESC
     `;
     const { rows } = await pool.query(query, [tenantId, cuentaId]);
     return rows;
