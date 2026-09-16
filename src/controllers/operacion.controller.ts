@@ -33,8 +33,14 @@ export interface OperacionCrearBody {
   sucursal_id?: string;
   fecha?: string;
   registrar_finanzas_ahora?: boolean;
+  impactar_stock_ahora?: boolean;
   modo_reparto?: 'porcentaje' | 'monto';
-  items?: Array<{ producto_sucursal_id?: string; cantidad?: number; [key: string]: unknown }>;
+  items?: Array<{
+    producto_sucursal_id?: string;
+    cantidad?: number;
+    cantidad_impactada_stock?: number;
+    [key: string]: unknown;
+  }>;
   cuentas?: Array<{
     cuenta_financiera_id?: string;
     porcentaje_venta?: number;
@@ -56,6 +62,13 @@ export interface RegistrarPagoBody {
     monto_usd?: number;
     fecha_efectiva?: string;
     observacion?: string | null;
+  }>;
+}
+
+export interface RegistrarImpactoStockBody {
+  items?: Array<{
+    operacion_detalle_id?: string;
+    cantidad?: number;
   }>;
 }
 
@@ -134,6 +147,52 @@ export class OperacionController {
       }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in OperacionController.cancelar:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  registrarImpactoStock = async (
+    req: TypedRequestBody<RegistrarImpactoStockBody, { id: string }>,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const items = req.body.items;
+      if (!items || items.length === 0) {
+        res.status(400).json(errorResponse('Indicá al menos una línea con cantidad a impactar.'));
+        return;
+      }
+      const ids = new Set<string>();
+      for (const item of items) {
+        if (!item.operacion_detalle_id || !Number.isInteger(item.cantidad) || !(item.cantidad! > 0)) {
+          res.status(400).json(errorResponse('Cada línea requiere un identificador y una cantidad entera mayor a cero.'));
+          return;
+        }
+        if (ids.has(item.operacion_detalle_id)) {
+          res.status(400).json(errorResponse('Una línea solo puede impactarse una vez por solicitud.'));
+          return;
+        }
+        ids.add(item.operacion_detalle_id);
+      }
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const data = await service.registrarImpactoStock(tenantId, req.params.id, {
+        items: items.map((item) => ({
+          operacion_detalle_id: item.operacion_detalle_id!,
+          cantidad: item.cantidad!,
+        })),
+      });
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.registrarImpactoStock:', error);
       res.status(500).json(errorResponse(message));
     }
   };
@@ -316,6 +375,22 @@ export class OperacionController {
       }
 
       const esCompraOVenta = body.tipo === 'compra' || body.tipo === 'venta';
+      if (esCompraOVenta) {
+        for (const item of body.items ?? []) {
+          const cantidadImpactada = item.cantidad_impactada_stock;
+          if (
+            cantidadImpactada !== undefined
+            && (!Number.isInteger(cantidadImpactada) || cantidadImpactada < 0 || cantidadImpactada > Number(item.cantidad))
+          ) {
+            res.status(400).json(errorResponse('La cantidad inicial a impactar debe ser un entero entre cero y la cantidad del producto.'));
+            return;
+          }
+        }
+      }
+      if (body.impactar_stock_ahora !== undefined && typeof body.impactar_stock_ahora !== 'boolean') {
+        res.status(400).json(errorResponse('El campo "impactar_stock_ahora" debe ser booleano.'));
+        return;
+      }
       const registrarFinanzasAhora = !esCompraOVenta
         || body.registrar_finanzas_ahora === true
         || (body.registrar_finanzas_ahora === undefined && (body.cuentas?.length ?? 0) > 0);

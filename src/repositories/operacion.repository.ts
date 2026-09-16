@@ -24,6 +24,7 @@ const SORTABLE_COLUMNS: Record<string, string> = {
 export interface OperacionItemInput {
   producto_sucursal_id: string;
   cantidad: number;
+  cantidad_impactada_stock?: number;
   precio_unit_ars?: number | null;
   precio_unit_usd?: number | null;
   costo_unit_ars?: number | null;
@@ -47,6 +48,8 @@ export interface OperacionCrearData {
   fecha?: string;
   /** Solo aplica a compras y ventas. Si se omite, se infiere de las cuentas recibidas. */
   registrar_finanzas_ahora?: boolean;
+  /** Solo aplica a compras y ventas. Por compatibilidad, se impacta al crear si se omite. */
+  impactar_stock_ahora?: boolean;
   /** Cómo se reparte el total entre las cuentas. Default: 'monto'. */
   modo_reparto?: ModoReparto;
   items?: OperacionItemInput[];
@@ -92,7 +95,15 @@ export interface RegistrarPagoData {
   observacion?: string | null;
 }
 
+export interface RegistrarImpactoStockData {
+  items: Array<{
+    operacion_detalle_id: string;
+    cantidad: number;
+  }>;
+}
+
 export type EstadoFinanciero = 'PENDIENTE' | 'PARCIAL' | 'SALDADA' | 'SOBREPAGADA';
+export type EstadoStock = 'PENDIENTE' | 'PARCIAL' | 'COMPLETO';
 
 const TOLERANCIA_FINANCIERA = 0.01;
 
@@ -106,6 +117,33 @@ export function calcularEstadoFinanciero(total: number, acumulado: number): Esta
   if (acumulado <= total + TOLERANCIA_FINANCIERA) return 'SALDADA';
   return 'SOBREPAGADA';
 }
+
+export function calcularEstadoStock(
+  items: Array<{ cantidad: unknown; cantidad_impactada_stock: unknown }>
+): EstadoStock | null {
+  if (items.length === 0) return null;
+  if (items.every((item) => Number(item.cantidad_impactada_stock) === 0)) return 'PENDIENTE';
+  if (items.every((item) => Number(item.cantidad_impactada_stock) === Number(item.cantidad))) return 'COMPLETO';
+  return 'PARCIAL';
+}
+
+const ESTADO_STOCK_SQL = `
+  CASE
+    WHEN to2.nombre NOT IN ('Compra', 'Venta') THEN NULL
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM public.operacion_detalle od_stock
+      WHERE od_stock.operacion_id = o.id
+        AND od_stock.cantidad_impactada_stock > 0
+    ) THEN 'PENDIENTE'
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM public.operacion_detalle od_stock
+      WHERE od_stock.operacion_id = o.id
+        AND od_stock.cantidad_impactada_stock < od_stock.cantidad
+    ) THEN 'COMPLETO'
+    ELSE 'PARCIAL'
+  END AS estado_stock`;
 
 export class OperacionRepository {
   async findAll(tenantId: string, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
@@ -127,7 +165,8 @@ export class OperacionRepository {
              u.nombre       AS usuario_nombre,
              s.nombre       AS sucursal_nombre,
              us.sucursal_id AS sucursal_id,
-             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto
+             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto,
+             ${ESTADO_STOCK_SQL}
       FROM public.operacion o
       JOIN public.tipo_operacion   to2 ON to2.id = o.tipo_id
       JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
@@ -163,7 +202,8 @@ export class OperacionRepository {
               u.nombre       AS usuario_nombre,
               s.nombre       AS sucursal_nombre,
               us.sucursal_id AS sucursal_id,
-              COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto
+              COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto,
+              ${ESTADO_STOCK_SQL}
        FROM public.operacion o
        JOIN public.tipo_operacion   to2 ON to2.id = o.tipo_id
        JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
@@ -239,7 +279,8 @@ export class OperacionRepository {
              u.nombre       AS usuario_nombre,
              s.nombre       AS sucursal_nombre,
              us.sucursal_id AS sucursal_id,
-             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto
+             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto,
+             ${ESTADO_STOCK_SQL}
       FROM public.operacion o
       JOIN public.tipo_operacion   to2 ON to2.id = o.tipo_id
       JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
@@ -356,10 +397,12 @@ export class OperacionRepository {
     const itemsQuery = `
       SELECT 
         od.id,
-        od.operacion_id,
-        od.producto_sucursal_id,
-        od.cantidad,
-        od.alicuota_iva,
+         od.operacion_id,
+         od.producto_sucursal_id,
+         od.cantidad,
+         od.cantidad_impactada_stock,
+         od.ultima_modificacion_stock_at,
+         od.alicuota_iva,
         od.iva_ars,
         od.precio_unit_ars,
         od.costo_unit_ars,
@@ -401,6 +444,9 @@ export class OperacionRepository {
 
     return {
       ...op,
+      estado_stock: op.tipo_nombre === 'Compra' || op.tipo_nombre === 'Venta'
+        ? calcularEstadoStock(items)
+        : null,
       items,
       cuentas,
       monto_pagado_ars: redondearMonto(
@@ -435,8 +481,18 @@ export class OperacionRepository {
       );
       const id = opRows[0].id as string;
 
-      if (data.items && data.items.length > 0) {
-        await this.insertDetalle(client, id, data.items);
+      const itemsConImpactoInicial = (data.items ?? []).map((item) => ({
+        ...item,
+        cantidad_impactada_stock: esOperacionComercial
+          ? item.cantidad_impactada_stock ?? (data.impactar_stock_ahora === false ? 0 : item.cantidad)
+          : 0,
+      }));
+      const itemsAImpactarAhora = itemsConImpactoInicial
+        .filter((item) => Number(item.cantidad_impactada_stock) > 0)
+        .map((item) => ({ ...item, cantidad: Number(item.cantidad_impactada_stock) }));
+
+      if (itemsConImpactoInicial.length > 0) {
+        await this.insertDetalle(client, id, itemsConImpactoInicial, esOperacionComercial);
       }
 
       await this.insertExtension(client, id, data, reparto);
@@ -449,12 +505,12 @@ export class OperacionRepository {
 
       switch (data.tipo) {
         case 'Compra':
-          await this.ajustarStockCompra(client, data.items ?? []);
+          await this.ajustarStockCompra(client, itemsAImpactarAhora);
           await this.ajustarSaldos(client, cuentasResueltas, 'debito');
           break;
         case 'Venta':
           await this.validarMargenMinimo(client, data.items ?? []);
-          await this.ajustarStockVenta(client, data.items ?? []);
+          await this.ajustarStockVenta(client, itemsAImpactarAhora);
           await this.ajustarSaldos(client, cuentasResueltas, 'credito');
           break;
         case 'Traslado':
@@ -495,7 +551,7 @@ export class OperacionRepository {
         client, tenantId, authId, operacion.sucursal_id as string
       );
       const { rows: detalleRows } = await client.query(
-        `SELECT od.producto_sucursal_id, od.cantidad, ps.producto_id
+        `SELECT od.producto_sucursal_id, od.cantidad, od.cantidad_impactada_stock, ps.producto_id
          FROM public.operacion_detalle od
          JOIN public.producto_sucursal ps ON ps.id = od.producto_sucursal_id
          WHERE od.operacion_id = $1
@@ -513,14 +569,22 @@ export class OperacionRepository {
         cuenta_financiera_id: row.cuenta_financiera_id as string,
         monto_ars: Number(row.monto_ars),
       }));
+      const detallesStock = detalleRows
+        .map((detalle) => ({
+          ...detalle,
+          cantidad: operacion.tipo_nombre === 'Compra' || operacion.tipo_nombre === 'Venta'
+            ? detalle.cantidad_impactada_stock
+            : detalle.cantidad,
+        }))
+        .filter((detalle) => Number(detalle.cantidad) > 0);
 
       switch (operacion.tipo_nombre) {
         case 'Compra':
-          await this.revertirCompra(client, detalleRows);
+          await this.revertirCompra(client, detallesStock);
           await this.ajustarSaldos(client, cuentas, 'credito');
           break;
         case 'Venta':
-          await this.revertirVenta(client, detalleRows);
+          await this.revertirVenta(client, detallesStock);
           await this.ajustarSaldos(client, cuentas, 'debito');
           break;
         case 'Traslado': {
@@ -553,6 +617,112 @@ export class OperacionRepository {
          WHERE id = $1`,
         [id, canceladorId]
       );
+    });
+    return this.findById(tenantId, id);
+  }
+
+  async registrarImpactoStock(tenantId: string, id: string, data: RegistrarImpactoStockData) {
+    await withTransaction(async (client) => {
+      const idsDetalle = data.items.map((item) => item.operacion_detalle_id);
+      if (new Set(idsDetalle).size !== idsDetalle.length) {
+        throw new BusinessError('No se puede impactar la misma línea más de una vez en una sola solicitud.');
+      }
+
+      const { rows: operacionRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, to2.nombre AS tipo_nombre
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE OF o`,
+        [id, tenantId]
+      );
+      const operacion = operacionRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) throw new ConflictError('No se puede impactar stock en una operación cancelada.');
+      if (operacion.tipo_nombre !== 'Compra' && operacion.tipo_nombre !== 'Venta') {
+        throw new BusinessError('Solo las compras y ventas admiten impactos parciales de stock.');
+      }
+
+      const { rows: detalles } = await client.query(
+        `SELECT od.id, od.producto_sucursal_id, od.cantidad, od.cantidad_impactada_stock,
+                p.nombre AS producto_nombre
+         FROM public.operacion_detalle od
+         JOIN public.producto_sucursal ps ON ps.id = od.producto_sucursal_id
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE od.operacion_id = $1 AND od.id = ANY($2::uuid[])
+         ORDER BY od.id
+         FOR UPDATE OF od`,
+        [id, idsDetalle]
+      );
+      if (detalles.length !== idsDetalle.length) {
+        throw new BusinessError('Alguna de las líneas indicadas no pertenece a la operación.');
+      }
+
+      const cantidadPorDetalle = new Map(data.items.map((item) => [item.operacion_detalle_id, item.cantidad]));
+      for (const detalle of detalles) {
+        const nuevaCantidad = cantidadPorDetalle.get(detalle.id as string)!;
+        const pendiente = Number(detalle.cantidad) - Number(detalle.cantidad_impactada_stock);
+        if (!Number.isInteger(nuevaCantidad) || nuevaCantidad <= 0 || nuevaCantidad > pendiente) {
+          throw new BusinessError(
+            `La cantidad a impactar de ${detalle.producto_nombre} debe ser un entero mayor a cero y no superar las ${pendiente} unidades pendientes.`
+          );
+        }
+      }
+
+      const cantidadesPorStock = new Map<string, number>();
+      for (const detalle of detalles) {
+        const stockId = detalle.producto_sucursal_id as string;
+        const cantidad = cantidadPorDetalle.get(detalle.id as string)!;
+        cantidadesPorStock.set(stockId, (cantidadesPorStock.get(stockId) ?? 0) + cantidad);
+      }
+      const idsStock = [...cantidadesPorStock.keys()].sort();
+      const { rows: stocks } = await client.query(
+        `SELECT ps.id, ps.cantidad_disponible, p.nombre AS producto_nombre
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.id = ANY($1::uuid[])
+         ORDER BY ps.id
+         FOR UPDATE`,
+        [idsStock]
+      );
+      if (stocks.length !== idsStock.length) {
+        throw new BusinessError('No se encontró el stock de alguna línea de la operación.');
+      }
+      if (operacion.tipo_nombre === 'Venta') {
+        for (const stock of stocks) {
+          const cantidad = cantidadesPorStock.get(stock.id as string)!;
+          if (Number(stock.cantidad_disponible) < cantidad) {
+            throw new BusinessError(
+              `Stock insuficiente para registrar la salida de ${stock.producto_nombre}: hay ${stock.cantidad_disponible} y se solicitan ${cantidad}.`
+            );
+          }
+        }
+      }
+
+      for (const detalle of detalles) {
+        const cantidad = cantidadPorDetalle.get(detalle.id as string)!;
+        const resultado = await client.query(
+          `UPDATE public.operacion_detalle
+           SET cantidad_impactada_stock = cantidad_impactada_stock + $1,
+               ultima_modificacion_stock_at = NOW()
+           WHERE id = $2
+             AND cantidad_impactada_stock + $1 <= cantidad`,
+          [cantidad, detalle.id]
+        );
+        if (resultado.rowCount !== 1) {
+          throw new ConflictError('La operación cambió mientras se registraba el impacto. Actualizá el detalle e intentá nuevamente.');
+        }
+      }
+
+      const signo = operacion.tipo_nombre === 'Compra' ? 1 : -1;
+      for (const stockId of idsStock) {
+        await client.query(
+          `UPDATE public.producto_sucursal
+           SET cantidad_disponible = cantidad_disponible + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [signo * cantidadesPorStock.get(stockId)!, stockId]
+        );
+      }
     });
     return this.findById(tenantId, id);
   }
@@ -895,16 +1065,26 @@ export class OperacionRepository {
     return rows[0].id as string;
   }
 
-  private async insertDetalle(client: PoolClient, operacionId: string, items: OperacionItemInput[]) {
+  private async insertDetalle(
+    client: PoolClient,
+    operacionId: string,
+    items: OperacionItemInput[],
+    esOperacionComercial: boolean
+  ) {
     for (const item of items) {
+      const cantidadImpactadaStock = esOperacionComercial
+        ? Number(item.cantidad_impactada_stock ?? item.cantidad)
+        : 0;
       await client.query(
         `INSERT INTO public.operacion_detalle
-           (operacion_id, producto_sucursal_id, cantidad, alicuota_iva, iva_ars, iva_usd, precio_unit_ars, precio_unit_usd, costo_unit_ars, costo_unit_usd)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            (operacion_id, producto_sucursal_id, cantidad, cantidad_impactada_stock, ultima_modificacion_stock_at, alicuota_iva, iva_ars, iva_usd, precio_unit_ars, precio_unit_usd, costo_unit_ars, costo_unit_usd)
+          VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN NOW() ELSE NULL END, $6, $7, $8, $9, $10, $11, $12)`,
         [
           operacionId,
           item.producto_sucursal_id,
           item.cantidad,
+          cantidadImpactadaStock,
+          cantidadImpactadaStock > 0,
           item.alicuota_iva ?? null,
           item.iva_ars ?? null,
           item.iva_usd ?? null,

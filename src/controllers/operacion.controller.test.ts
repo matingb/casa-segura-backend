@@ -191,6 +191,46 @@ describe('OperacionController', () => {
     });
   });
 
+  describe('registrarImpactoStock', () => {
+    it('registra varias líneas de stock con cantidades enteras', async () => {
+      const mockOperacion = { id: 'op-1', estado_stock: 'PARCIAL' };
+      vi.mocked(OperacionService.prototype.registrarImpactoStock).mockResolvedValue(mockOperacion as any);
+      req.params = { id: 'op-1' };
+      req.body = {
+        items: [
+          { operacion_detalle_id: 'detalle-1', cantidad: 2 },
+          { operacion_detalle_id: 'detalle-2', cantidad: 1 },
+        ],
+      };
+
+      await controller.registrarImpactoStock(req, res as Response);
+
+      expect(OperacionService.prototype.registrarImpactoStock).toHaveBeenCalledWith(TENANT_ID, 'op-1', {
+        items: [
+          { operacion_detalle_id: 'detalle-1', cantidad: 2 },
+          { operacion_detalle_id: 'detalle-2', cantidad: 1 },
+        ],
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('rechaza líneas duplicadas o cantidades fraccionarias antes de llamar al servicio', async () => {
+      vi.mocked(OperacionService.prototype.registrarImpactoStock).mockClear();
+      req.params = { id: 'op-1' };
+      req.body = {
+        items: [
+          { operacion_detalle_id: 'detalle-1', cantidad: 1 },
+          { operacion_detalle_id: 'detalle-1', cantidad: 1 },
+        ],
+      };
+
+      await controller.registrarImpactoStock(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(OperacionService.prototype.registrarImpactoStock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('eliminarPago', () => {
     it('elimina un pago/cobro individual de la operación', async () => {
       const mockOperacion = { id: 'op-1', estado_financiero: 'PENDIENTE' };
@@ -253,6 +293,19 @@ describe('OperacionController', () => {
       await controller.create(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(201);
+    });
+
+    it('rechaza una cantidad inicial a impactar superior a la cantidad comercial', async () => {
+      vi.mocked(OperacionService.prototype.crear).mockClear();
+      req.body = {
+        ...baseVenta,
+        items: [{ producto_sucursal_id: 'ps-1', cantidad: 2, cantidad_impactada_stock: 3 }],
+      };
+
+      await controller.create(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(OperacionService.prototype.crear).not.toHaveBeenCalled();
     });
 
     it('debería crear un traslado válido', async () => {
