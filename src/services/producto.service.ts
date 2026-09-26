@@ -1,5 +1,6 @@
 import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositories/producto.repository';
 import { uploadProductImage, getPublicUrl } from './storage.service';
+import { BusinessError } from '../utils/errors';
 
 export class ProductoService {
   private productoRepository: ProductoRepository;
@@ -36,13 +37,30 @@ export class ProductoService {
     return this.productoRepository.findById(id, tenantId);
   }
 
+  /**
+   * Descuento general del producto (nivel 3 de la cascada). Solo se valida el
+   * rango: el tope real por margen mínimo depende de la sucursal y se resuelve
+   * al calcular la lista de precios.
+   */
+  private validarDescuentoBase(descuento: unknown) {
+    if (descuento === null || descuento === undefined) return;
+    const valor = Number(descuento);
+    if (!Number.isFinite(valor) || valor < 0 || valor > 100) {
+      throw new BusinessError('El descuento debe ser un porcentaje entre 0 y 100.');
+    }
+  }
+
   async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
+    this.validarDescuentoBase(data.descuento_base);
     return this.productoRepository.create({ ...data, tenant_id: tenantId });
   }
 
   async updateProducto(id: string, data: Partial<ProductoData>, tenantId: string) {
     const producto = await this.productoRepository.findById(id, tenantId);
     if (!producto) return null;
+    if ('descuento_base' in data) {
+      this.validarDescuentoBase(data.descuento_base);
+    }
     return this.productoRepository.update(id, data, tenantId);
   }
 

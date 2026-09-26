@@ -33,6 +33,19 @@ export function validarMargenMinimoConfiguracion(
   }
 }
 
+/**
+ * El descuento del producto es el nivel 3 de la cascada de listas de precios.
+ * Acá solo se valida el rango: el tope real por margen mínimo depende de los
+ * descuentos que se apliquen antes, y se resuelve al calcular la lista.
+ */
+export function validarDescuentoProducto(descuento: unknown) {
+  if (descuento === null || descuento === undefined) return;
+  const valor = Number(descuento);
+  if (!Number.isFinite(valor) || valor < 0 || valor > 100) {
+    throw new BusinessError('El descuento debe ser un porcentaje entre 0 y 100.');
+  }
+}
+
 export class ProductoSucursalService {
   private repo = new ProductoSucursalRepository();
 
@@ -68,6 +81,7 @@ export class ProductoSucursalService {
 
   async create(tenantId: string, data: ProductoSucursalData) {
     validarMargenMinimoConfiguracion(data);
+    validarDescuentoProducto(data.descuento);
     const item = await this.repo.create(data, tenantId);
     if (!item) {
       throw new BusinessError('El producto o la sucursal no pertenecen al tenant actual.');
@@ -83,6 +97,9 @@ export class ProductoSucursalService {
       precio_venta_ars: 'precio_venta_ars' in data ? data.precio_venta_ars : actual.precio_venta_ars,
       margen_minimo: 'margen_minimo' in data ? data.margen_minimo : actual.margen_minimo,
     });
+    if ('descuento' in data) {
+      validarDescuentoProducto(data.descuento);
+    }
     return this.repo.update(id, data, tenantId);
   }
 

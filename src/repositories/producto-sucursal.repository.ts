@@ -15,6 +15,7 @@ const JOIN_QUERY = `
          p.activo          AS producto_activo,
          p.precio_base     AS producto_precio_base,
          p.costo_reposicion_base AS producto_costo_reposicion_base,
+         p.descuento_base  AS producto_descuento_base,
          s.nombre          AS sucursal_nombre
   FROM public.producto_sucursal ps
   JOIN public.producto  p ON p.id = ps.producto_id
@@ -52,6 +53,8 @@ export interface ProductoSucursalData {
   precio_venta_usd?: number | null;
   iva?: number | null;
   margen_minimo?: number | null;
+  /** Nivel 3 de la cascada de descuentos, topeado por margen_minimo. */
+  descuento?: number | null;
   stock_minimo?: number | null;
   habilitado?: boolean;
   /** Corrección manual de stock (solo vía update, no en el alta). */
@@ -175,6 +178,7 @@ export class ProductoSucursalRepository {
              p.activo          AS producto_activo,
              p.precio_base     AS producto_precio_base,
              p.costo_reposicion_base AS producto_costo_reposicion_base,
+             p.descuento_base  AS producto_descuento_base,
              s.nombre          AS sucursal_nombre
       FROM public.producto_sucursal ps
       JOIN public.producto  p ON p.id = ps.producto_id
@@ -262,11 +266,11 @@ export class ProductoSucursalRepository {
   async create(data: ProductoSucursalData, tenantId: string) {
     const { rows } = await pool.query(
       `INSERT INTO public.producto_sucursal
-        (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, stock_minimo, habilitado)
-       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+        (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
        FROM public.producto p
        JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
-       WHERE p.id = $1 AND p.tenant_id = $10 AND p.deleted_at IS NULL
+       WHERE p.id = $1 AND p.tenant_id = $11 AND p.deleted_at IS NULL
        RETURNING *`,
       [
         data.producto_id,
@@ -276,6 +280,7 @@ export class ProductoSucursalRepository {
         data.precio_venta_usd ?? null,
         data.iva ?? 21,
         data.margen_minimo ?? null,
+        data.descuento ?? null,
         data.stock_minimo ?? 0,
         data.habilitado ?? true,
         tenantId,
@@ -291,6 +296,7 @@ export class ProductoSucursalRepository {
       'precio_venta_usd',
       'iva',
       'margen_minimo',
+      'descuento',
       'stock_minimo',
       'habilitado',
       'cantidad_disponible',

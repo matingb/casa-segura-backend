@@ -150,6 +150,10 @@ export class ProductoController {
       const producto = await this.productoService.createProducto(req.body, tenantId);
       res.status(201).json(successResponse(producto));
     } catch (error: unknown) {
+      if (error instanceof BusinessError) {
+        res.status(400).json(errorResponse(error.message));
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ProductoController] createProducto:', error);
       res.status(500).json(errorResponse(message));
@@ -173,6 +177,10 @@ export class ProductoController {
       }
       res.status(200).json(successResponse(producto));
     } catch (error: unknown) {
+      if (error instanceof BusinessError) {
+        res.status(400).json(errorResponse(error.message));
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ProductoController] updateProducto:', error);
       res.status(500).json(errorResponse(message));
