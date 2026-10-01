@@ -5,6 +5,7 @@ import { withTransaction } from '../utils/db-transaction';
 import { BusinessError, ConflictError } from '../utils/errors';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 import { ModoReparto, CuentaRepartoResuelta, ResultadoReparto, resolverReparto } from '../utils/reparto-cuentas';
+import { calcularPrecioMinimo } from '../utils/cascada-descuentos';
 
 export interface OperacionFiltros {
   tipo?: string;
@@ -1210,14 +1211,14 @@ export class OperacionRepository {
 
       const costo = fila.costo_reposicion !== null ? Number(fila.costo_reposicion) : null;
       const margen = fila.margen_minimo !== null ? Number(fila.margen_minimo) : null;
-      if (costo === null || margen === null || costo <= 0) continue;
+      const precioMinimo = calcularPrecioMinimo(costo, margen);
+      if (precioMinimo === null) continue;
 
       const precio = item.precio_unit_ars !== null && item.precio_unit_ars !== undefined
         ? Number(item.precio_unit_ars)
         : null;
       if (precio === null) continue;
 
-      const precioMinimo = costo * (1 + margen / 100);
       // Tolerancia de un centavo para no rechazar por redondeo.
       if (precio < precioMinimo - 0.01) {
         throw new BusinessError(
