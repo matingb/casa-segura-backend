@@ -1,5 +1,6 @@
 import { SucursalRepository, SucursalData } from '../repositories/sucursal.repository';
 import { BusinessError } from '../utils/errors';
+import { CotizacionRepository } from '../repositories/cotizacion.repository';
 
 export class SucursalService {
   private repo = new SucursalRepository();
@@ -18,6 +19,7 @@ export class SucursalService {
 
   async create(tenantId: string, data: SucursalData) {
     this.validar(data);
+    if (data.valor_dolar != null) await this.validarDolarHeredado(tenantId, data);
     return this.repo.create(tenantId, data);
   }
 
@@ -25,6 +27,10 @@ export class SucursalService {
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     this.validar(data);
+
+    if (data.valor_dolar !== undefined && (data.valor_dolar === null ? sucursal.valor_dolar != null : Number(data.valor_dolar) !== Number(sucursal.valor_dolar))) {
+      await this.validarDolarHeredado(tenantId, data);
+    }
 
     // Reactivar siempre se puede; desactivar pasa por las mismas reglas que la baja.
     if (data.activo === false && sucursal.activo) {
@@ -88,6 +94,14 @@ export class SucursalService {
       if (!Number.isFinite(descuento) || descuento < 0 || descuento > 100) {
         throw new BusinessError('El descuento debe ser un porcentaje entre 0 y 100.');
       }
+    }
+  }
+
+  private async validarDolarHeredado(tenantId: string, data: Partial<SucursalData>) {
+    if (!('valor_dolar' in data)) return;
+    const contexto = await new CotizacionRepository().obtener(tenantId);
+    if (contexto.cotizacion_usd_ars !== null) {
+      throw new BusinessError('El dólar se configura para toda la empresa en Configuración → Cotización. El valor anterior de sucursal se conserva como histórico.');
     }
   }
 }

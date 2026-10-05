@@ -21,7 +21,7 @@ export interface ClienteDescuentoProductoRow {
   producto_id: string;
   producto_codigo: string;
   producto_nombre: string;
-  producto_precio_base: number;
+  producto_precio_base: number | string | null;
   porcentaje: number;
   nota: string | null;
   created_at: string;
@@ -114,14 +114,14 @@ export class ClienteDescuentoRepository {
         cdp.producto_id,
         p.codigo AS producto_codigo,
         p.nombre AS producto_nombre,
-        p.precio_base AS producto_precio_base,
+        p.precio_base_ars_resuelto AS producto_precio_base,
         cdp.porcentaje,
         cdp.nota,
         cdp.created_at,
         cdp.updated_at
       FROM public.cliente_descuento_producto cdp
       JOIN public.cliente c ON c.id = cdp.cliente_id
-      JOIN public.producto p ON p.id = cdp.producto_id
+      JOIN public.producto_catalogo p ON p.id = cdp.producto_id
       WHERE cdp.cliente_id = $1
         AND c.tenant_id = $2
         AND p.tenant_id = $2

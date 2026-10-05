@@ -1,3 +1,5 @@
+import { Dinero } from './moneda';
+
 /**
  * Cascada de descuentos y análisis centralizado de margen de ganancias.
  *
@@ -75,7 +77,8 @@ export interface AporteNivel {
 }
 
 export interface EntradaCascada {
-  precioBase: number;
+  precioBase: number | string;
+  decimalesMonetarios?: 2 | 4;
   descuentoSucursal?: number | null;
   descuentoCategoria?: number | null;
   descuentoProducto?: number | null;
@@ -88,13 +91,16 @@ export interface EntradaCascada {
   /** Precio manual ingresado por el usuario (si sobreescribe la cascada) */
   precioManual?: number | null;
   /** Piso de rentabilidad: costo × (1 + margen/100). Null = sin tope. */
-  costoReposicion?: number | null;
+  costoReposicion?: number | string | null;
   margenMinimo?: number | null;
   /** Si true, no fuerza el tope automático a precioMinimo sino que marca perforado */
   permitirPerforacion?: boolean;
 }
 
 export interface ResultadoCascada {
+  precioFinalDecimal?: string;
+  precioSinTopeDecimal?: string;
+  precioMinimoDecimal?: string | null;
   precioBase: number;
   /** Precio final, ya topeado por margen mínimo si correspondía. */
   precioFinal: number;
@@ -294,147 +300,81 @@ export function evaluarMargenGanancia(params: {
  * Función central de cálculo de cascada de descuentos y margen de ganancias.
  */
 export function calcularCascada(entrada: EntradaCascada): ResultadoCascada {
-  const precioBase = Number(entrada.precioBase);
+  const decimales = entrada.decimalesMonetarios ?? 2;
+  const base = new Dinero(entrada.precioBase);
   const aportes: AporteNivel[] = [];
+  const costo = entrada.costoReposicion == null ? null : new Dinero(entrada.costoReposicion);
+  const tienePiso = costo !== null && costo.isFinite() && costo.gt(0) &&
+    entrada.margenMinimo != null && Number.isFinite(entrada.margenMinimo);
+  const piso = tienePiso
+    // El piso USD se eleva a la unidad representable para no perforar el
+    // margen ARS al convertir un costo cuya división produce más de 4 decimales.
+    ? costo!.mul(new Dinero(entrada.margenMinimo!).div(100).plus(1)).toDecimalPlaces(decimales, decimales === 4 ? Dinero.ROUND_CEIL : Dinero.ROUND_HALF_UP)
+    : null;
+  const precioMinimo = piso?.toNumber() ?? null;
+  const descuentoMaximo = base.isFinite() && base.gt(0) && piso
+    ? Dinero.max(0, new Dinero(1).minus(piso.div(base)).mul(100)).toDecimalPlaces(2).toNumber()
+    : null;
+  const analizar = (final: number, sinTope: number, tope: boolean) => evaluarMargenGanancia({
+    precioFinal: final, precioSinTope: sinTope,
+    costoReposicion: entrada.costoReposicion == null ? null : Number(entrada.costoReposicion),
+    margenMinimo: entrada.margenMinimo, precioMinimo, descuentoMaximo, topeAplicado: tope,
+  });
 
-  const precioMinimo = calcularPrecioMinimo(entrada.costoReposicion, entrada.margenMinimo);
-  const descuentoMaximo = calcularDescuentoMaximo(precioBase, precioMinimo);
-
-  if (!Number.isFinite(precioBase) || precioBase <= 0) {
-    const analisisVacio = evaluarMargenGanancia({
-      precioFinal: 0,
-      precioSinTope: 0,
-      costoReposicion: entrada.costoReposicion,
-      margenMinimo: entrada.margenMinimo,
-      precioMinimo: null,
-      descuentoMaximo: null,
-      topeAplicado: false,
-    });
+  if (!base.isFinite() || base.lte(0)) {
+    const analisis = analizar(0, 0, false);
     return {
-      precioBase: 0,
-      precioFinal: 0,
-      precioSinTope: 0,
-      descuentoEfectivo: 0,
-      aportes,
-      precioMinimo: null,
-      topeAplicado: false,
-      descuentoMaximo: null,
-      analisisMargen: analisisVacio,
-      alertas: analisisVacio.alertas,
-      gananciaUnitaria: null,
-      margenEfectivo: null,
+      precioBase: 0, precioFinal: 0, precioSinTope: 0, descuentoEfectivo: 0, aportes,
+      precioFinalDecimal: new Dinero(0).toFixed(decimales), precioSinTopeDecimal: new Dinero(0).toFixed(decimales),
+      precioMinimoDecimal: null, precioMinimo: null, topeAplicado: false, descuentoMaximo: null,
+      analisisMargen: analisis, alertas: analisis.alertas, gananciaUnitaria: null, margenEfectivo: null,
     };
   }
-
-  // Si se ingresó un precio manual que sobreescribe la cascada
-  if (entrada.precioManual !== undefined && entrada.precioManual !== null && Number.isFinite(Number(entrada.precioManual))) {
-    const precioManual = redondear(Number(entrada.precioManual));
-    const descuentoEfectivoManual = redondear(((precioBase - precioManual) / precioBase) * 100);
-
-    const analisis = evaluarMargenGanancia({
-      precioFinal: precioManual,
-      precioSinTope: precioManual,
-      costoReposicion: entrada.costoReposicion,
-      margenMinimo: entrada.margenMinimo,
-      precioMinimo,
-      descuentoMaximo,
-      topeAplicado: false,
-    });
-
-    return {
-      precioBase: redondear(precioBase),
-      precioFinal: precioManual,
-      precioSinTope: precioManual,
-      descuentoEfectivo: descuentoEfectivoManual,
-      aportes: [],
-      precioMinimo,
-      topeAplicado: false,
-      descuentoMaximo,
-      analisisMargen: analisis,
-      alertas: analisis.alertas,
-      gananciaUnitaria: analisis.gananciaUnitaria,
-      margenEfectivo: analisis.margenEfectivo,
-    };
-  }
-
-  // Niveles 1 a 3 (generales) y sub-niveles 4a a 4c (cadena del cliente):
-  // Cada uno sobre el saldo que dejó el anterior.
-  let precio = precioBase;
-  const enCascada: [NivelDescuento, number][] = [
-    ['sucursal', normalizarPorcentaje(entrada.descuentoSucursal)],
-    ['categoria', normalizarPorcentaje(entrada.descuentoCategoria)],
-    ['producto', normalizarPorcentaje(entrada.descuentoProducto)],
-    ['region-cliente', normalizarPorcentaje(entrada.descuentoRegionCliente)],
-    ['categoria-cliente', normalizarPorcentaje(entrada.descuentoCategoriaCliente)],
-    ['producto-cliente', normalizarPorcentaje(entrada.descuentoProductoCliente)],
-  ];
-
-  for (const [nivel, porcentaje] of enCascada) {
-    if (porcentaje === 0) continue;
-    const precioAnterior = precio;
-    precio = precio * (1 - porcentaje / 100);
-    const montoDescontado = redondear(precioAnterior - precio);
-    aportes.push({
-      nivel,
-      porcentaje,
-      montoDescontado,
-      precioResultante: redondear(precio),
-    });
-  }
-
-  // Descuento general del cliente (mantenido): se suma al descuento efectivo acumulado.
-  const descuentoCliente = normalizarPorcentaje(entrada.descuentoCliente);
-  if (descuentoCliente > 0) {
-    const precioAnterior = precio;
-    const efectivoCascada = (1 - precio / precioBase) * 100;
-    const efectivoTotal = Math.min(efectivoCascada + descuentoCliente, 100);
-    precio = precioBase * (1 - efectivoTotal / 100);
-    const montoDescontado = redondear(precioAnterior - precio);
-    aportes.push({
-      nivel: 'cliente',
-      porcentaje: descuentoCliente,
-      montoDescontado,
-      precioResultante: redondear(precio),
-    });
-  }
-
-  const precioSinTope = redondear(precio);
-
-  // El margen mínimo recorta si no se permite perforación explícita
-  let precioFinal = precioSinTope;
-  let topeAplicado = false;
-  if (precioMinimo !== null && precioSinTope < precioMinimo) {
-    if (!entrada.permitirPerforacion) {
-      precioFinal = precioMinimo;
-      topeAplicado = true;
+  let precio = new Dinero(base);
+  const manual = entrada.precioManual != null && Number.isFinite(Number(entrada.precioManual));
+  if (manual) {
+    precio = new Dinero(entrada.precioManual!).toDecimalPlaces(decimales);
+  } else {
+    const niveles: [NivelDescuento, number][] = [
+      ['sucursal', normalizarPorcentaje(entrada.descuentoSucursal)],
+      ['categoria', normalizarPorcentaje(entrada.descuentoCategoria)],
+      ['producto', normalizarPorcentaje(entrada.descuentoProducto)],
+      ['region-cliente', normalizarPorcentaje(entrada.descuentoRegionCliente)],
+      ['categoria-cliente', normalizarPorcentaje(entrada.descuentoCategoriaCliente)],
+      ['producto-cliente', normalizarPorcentaje(entrada.descuentoProductoCliente)],
+    ];
+    for (const [nivel, porcentaje] of niveles) {
+      if (!porcentaje) continue;
+      const anterior = precio;
+      precio = precio.mul(new Dinero(1).minus(new Dinero(porcentaje).div(100)));
+      aportes.push({ nivel, porcentaje,
+        montoDescontado: anterior.minus(precio).toDecimalPlaces(decimales).toNumber(),
+        precioResultante: precio.toDecimalPlaces(decimales).toNumber() });
+    }
+    const habitual = normalizarPorcentaje(entrada.descuentoCliente);
+    if (habitual > 0) {
+      const anterior = precio;
+      const efectivo = new Dinero(1).minus(precio.div(base)).mul(100);
+      const total = Dinero.min(efectivo.plus(habitual), 100);
+      precio = base.mul(new Dinero(1).minus(total.div(100)));
+      aportes.push({ nivel: 'cliente', porcentaje: habitual,
+        montoDescontado: anterior.minus(precio).toDecimalPlaces(decimales).toNumber(),
+        precioResultante: precio.toDecimalPlaces(decimales).toNumber() });
     }
   }
-
-  const descuentoEfectivo = redondear((1 - precioFinal / precioBase) * 100);
-
-  const analisisMargen = evaluarMargenGanancia({
-    precioFinal,
-    precioSinTope,
-    costoReposicion: entrada.costoReposicion,
-    margenMinimo: entrada.margenMinimo,
-    precioMinimo,
-    descuentoMaximo,
-    topeAplicado,
-  });
-  analisisMargen.descuentoEfectivoPorcentaje = descuentoEfectivo;
-
+  const sinTope = precio.toDecimalPlaces(decimales);
+  const tope = !manual && !entrada.permitirPerforacion && piso !== null && sinTope.lt(piso);
+  const final = tope ? piso! : sinTope;
+  const descuentoEfectivo = new Dinero(1).minus(final.div(base)).mul(100).toDecimalPlaces(2).toNumber();
+  const analisis = analizar(final.toNumber(), sinTope.toNumber(), tope);
+  analisis.descuentoEfectivoPorcentaje = descuentoEfectivo;
   return {
-    precioBase: redondear(precioBase),
-    precioFinal,
-    precioSinTope,
-    descuentoEfectivo,
-    aportes,
-    precioMinimo,
-    topeAplicado,
-    descuentoMaximo,
-    analisisMargen,
-    alertas: analisisMargen.alertas,
-    gananciaUnitaria: analisisMargen.gananciaUnitaria,
-    margenEfectivo: analisisMargen.margenEfectivo,
+    precioBase: base.toDecimalPlaces(decimales).toNumber(),
+    precioFinal: final.toNumber(), precioSinTope: sinTope.toNumber(),
+    precioFinalDecimal: final.toFixed(decimales), precioSinTopeDecimal: sinTope.toFixed(decimales),
+    precioMinimoDecimal: piso?.toFixed(decimales) ?? null,
+    descuentoEfectivo, aportes, precioMinimo, topeAplicado: tope, descuentoMaximo,
+    analisisMargen: analisis, alertas: analisis.alertas,
+    gananciaUnitaria: analisis.gananciaUnitaria, margenEfectivo: analisis.margenEfectivo,
   };
 }

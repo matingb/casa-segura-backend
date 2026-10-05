@@ -4,7 +4,7 @@ import { ProductoSucursalData, ProductoSucursalFiltros } from '../repositories/p
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new ProductoSucursalService();
@@ -95,6 +95,10 @@ export class ProductoSucursalController {
       }
       res.status(200).json(successResponse(item));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
@@ -144,6 +148,10 @@ export class ProductoSucursalController {
       const item = await service.create(tenantId, req.body);
       res.status(201).json(successResponse(item));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
@@ -178,6 +186,10 @@ export class ProductoSucursalController {
       }
       res.status(200).json(successResponse(item));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;

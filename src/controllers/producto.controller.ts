@@ -5,7 +5,7 @@ import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
 
 export interface ProductoQuery {
   limit?: string;
@@ -98,6 +98,10 @@ export class ProductoController {
       }
       res.status(200).json(successResponse(producto));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
@@ -150,6 +154,10 @@ export class ProductoController {
       const producto = await this.productoService.createProducto(req.body, tenantId);
       res.status(201).json(successResponse(producto));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
@@ -177,6 +185,10 @@ export class ProductoController {
       }
       res.status(200).json(successResponse(producto));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;

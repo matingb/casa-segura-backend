@@ -2,7 +2,8 @@ import { PoolClient } from 'pg';
 import { pool } from '../config/db';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { withTransaction } from '../utils/db-transaction';
-import { BusinessError, ConflictError } from '../utils/errors';
+import { BusinessError, ConflictError, CatalogoError } from '../utils/errors';
+import { CotizacionRepository } from './cotizacion.repository';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 import { ModoReparto, CuentaRepartoResuelta, ResultadoReparto, resolverReparto } from '../utils/reparto-cuentas';
 import { calcularPrecioMinimo } from '../utils/cascada-descuentos';
@@ -46,6 +47,7 @@ export interface OperacionCuentaInput {
 export interface OperacionCrearData {
   tipo: 'Compra' | 'Venta' | 'Traslado' | 'Movimiento';
   sucursal_id: string;
+  cotizacion_version_catalogo?: string;
   fecha?: string;
   /** Solo aplica a compras y ventas. Si se omite, se infiere de las cuentas recibidas. */
   registrar_finanzas_ahora?: boolean;
@@ -458,6 +460,12 @@ export class OperacionRepository {
 
   async crear(tenantId: string, authId: string, data: OperacionCrearData) {
     const operacionId = await withTransaction(async (client) => {
+      if (data.cotizacion_version_catalogo !== undefined) {
+        const contexto = await new CotizacionRepository().obtener(tenantId, client);
+        if (data.cotizacion_version_catalogo !== contexto.cotizacion_version) {
+          throw new CatalogoError('Cambió la cotización del catálogo. Revisá los precios antes de confirmar la operación.', 'COTIZACION_CAMBIO', 409);
+        }
+      }
       const usuarioSucursalId = await this.resolverUsuarioSucursal(client, tenantId, authId, data.sucursal_id);
       const tipoId = await this.resolverTipoId(client, data.tipo);
       const esOperacionComercial = data.tipo === 'Compra' || data.tipo === 'Venta';
@@ -510,7 +518,7 @@ export class OperacionRepository {
           await this.ajustarSaldos(client, cuentasResueltas, 'debito');
           break;
         case 'Venta':
-          await this.validarMargenMinimo(client, data.items ?? []);
+          await this.validarMargenMinimo(client, data.items ?? [], tenantId, data.cotizacion_version_catalogo);
           await this.ajustarStockVenta(client, itemsAImpactarAhora);
           await this.ajustarSaldos(client, cuentasResueltas, 'credito');
           break;
@@ -1197,17 +1205,21 @@ export class OperacionRepository {
    * Si el producto no tiene costo de reposición o margen mínimo cargados, no se
    * puede calcular el piso y el ítem no se valida.
    */
-  private async validarMargenMinimo(client: PoolClient, items: OperacionItemInput[]) {
+  private async validarMargenMinimo(client: PoolClient, items: OperacionItemInput[], tenantId: string, version?: string) {
     for (const item of items) {
       const { rows } = await client.query(
-        `SELECT ps.costo_reposicion, ps.margen_minimo, p.nombre
+        `SELECT ps.costo_reposicion, ps.margen_minimo, p.nombre, ps.moneda_precio_venta, p.moneda_precio_base
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
-         WHERE ps.id = $1`,
-        [item.producto_sucursal_id]
+         WHERE ps.id = $1 AND p.tenant_id = $2`,
+        [item.producto_sucursal_id, tenantId]
       );
       const fila = rows[0];
       if (!fila) continue; // ajustarStockVenta ya reporta el producto inexistente
+
+      if ((fila.moneda_precio_venta === 'USD' || fila.moneda_precio_base === 'USD') && version === undefined) {
+        throw new CatalogoError('La venta usa un precio vinculado a USD. Confirmá la cotización del catálogo antes de registrarla.', 'COTIZACION_REQUERIDA', 409);
+      }
 
       const costo = fila.costo_reposicion !== null ? Number(fila.costo_reposicion) : null;
       const margen = fila.margen_minimo !== null ? Number(fila.margen_minimo) : null;

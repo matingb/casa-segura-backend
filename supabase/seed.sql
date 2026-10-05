@@ -161,6 +161,11 @@ VALUES
     ('00000000-0000-0000-0000-000000000046', 'reportes.ver'),
     ('00000000-0000-0000-0000-000000000047', 'usuarios.administrar');
 
+-- La migración CAS-54 puede haber creado este permiso antes de ejecutar el seed.
+INSERT INTO public.permiso (nombre)
+VALUES ('cotizacion.actualizar')
+ON CONFLICT (nombre) DO NOTHING;
+
 -- Administrador tiene todos los permisos
 INSERT INTO public.permiso_rol (id_rol, id_permiso)
 VALUES
@@ -172,6 +177,13 @@ VALUES
     ('00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000045'),
     ('00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000046'),
     ('00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000047');
+
+-- Habilita al usuario administrador del seed para configurar el valor del USD.
+INSERT INTO public.permiso_rol (id_rol, id_permiso)
+SELECT '00000000-0000-0000-0000-000000000030'::uuid, p.id
+FROM public.permiso p
+WHERE p.nombre = 'cotizacion.actualizar'
+ON CONFLICT DO NOTHING;
 
 -- Vendedor: solo ver y crear ventas/compras
 INSERT INTO public.permiso_rol (id_rol, id_permiso)

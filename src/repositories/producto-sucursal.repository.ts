@@ -1,4 +1,6 @@
 import { pool } from '../config/db';
+import { PoolClient } from 'pg';
+import { Moneda, PrecioInput } from '../utils/moneda';
 import { withTransaction } from '../utils/db-transaction';
 import { BusinessError } from '../utils/errors';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
@@ -13,12 +15,13 @@ const JOIN_QUERY = `
          p.imagen_url      AS producto_imagen_url,
          p.subtipo_id      AS producto_subtipo_id,
          p.activo          AS producto_activo,
-         p.precio_base     AS producto_precio_base,
+         p.precio_base_ars_resuelto AS producto_precio_base,
+         p.precio_resuelto AS producto_precio_resuelto,
          p.costo_reposicion_base AS producto_costo_reposicion_base,
          p.descuento_base  AS producto_descuento_base,
          s.nombre          AS sucursal_nombre
-  FROM public.producto_sucursal ps
-  JOIN public.producto  p ON p.id = ps.producto_id
+  FROM public.producto_sucursal_catalogo ps
+  JOIN public.producto_catalogo p ON p.id = ps.producto_id
   JOIN public.sucursal  s ON s.id = ps.sucursal_id
 `;
 
@@ -43,14 +46,21 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   cantidadDisponible: 'ps.cantidad_disponible',
   cantidadReservada: 'ps.cantidad_reservada',
   stockMinimo: 'ps.stock_minimo',
+  precioVentaArs: 'ps.precio_venta_ars_resuelto',
+  precioVentaUsd: 'ps.precio_venta_usd_resuelto',
+  precioArs: 'ps.precio_venta_ars_resuelto',
+  precioUsd: 'ps.precio_venta_usd_resuelto',
 };
 
 export interface ProductoSucursalData {
   producto_id: string;
   sucursal_id: string;
   costo_reposicion?: number | null;
-  precio_venta_ars?: number | null;
-  precio_venta_usd?: number | null;
+  precio?: PrecioInput | null;
+  precio_venta_ars?: number | string | null;
+  precio_venta_usd?: number | string | null;
+  moneda_precio_venta?: Moneda;
+  precio_referencia_confirmada?: boolean;
   iva?: number | null;
   margen_minimo?: number | null;
   /** Nivel 3 de la cascada de descuentos, topeado por margen_minimo. */
@@ -156,7 +166,8 @@ export class ProductoSucursalRepository {
     }
     const filtersSql = filterClauses.length ? `AND ${filterClauses.join(' AND ')}` : '';
 
-    const orderBy = buildMultiOrderByClause(parseSortParam(sortBy, sortDir), SORTABLE_COLUMNS, 's.nombre ASC, p.nombre ASC');
+    const orderBy = buildMultiOrderByClause(parseSortParam(sortBy, sortDir), SORTABLE_COLUMNS, 's.nombre ASC, p.nombre ASC')
+      .split(', ').map((orden) => `${orden} NULLS LAST`).join(', ') + ', ps.id ASC';
 
     const countQuery = `
       SELECT COUNT(*) FROM public.producto_sucursal ps
@@ -176,12 +187,13 @@ export class ProductoSucursalRepository {
              p.imagen_url      AS producto_imagen_url,
              p.subtipo_id      AS producto_subtipo_id,
              p.activo          AS producto_activo,
-             p.precio_base     AS producto_precio_base,
+             p.precio_base_ars_resuelto AS producto_precio_base,
+             p.precio_resuelto AS producto_precio_resuelto,
              p.costo_reposicion_base AS producto_costo_reposicion_base,
              p.descuento_base  AS producto_descuento_base,
              s.nombre          AS sucursal_nombre
-      FROM public.producto_sucursal ps
-      JOIN public.producto  p ON p.id = ps.producto_id
+      FROM public.producto_sucursal_catalogo ps
+      JOIN public.producto_catalogo p ON p.id = ps.producto_id
       JOIN public.sucursal  s ON s.id = ps.sucursal_id
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
@@ -212,8 +224,8 @@ export class ProductoSucursalRepository {
     if (campo === 'subtipo') {
       const { rows } = await pool.query(
         `SELECT DISTINCT sub.nombre AS valor
-         FROM public.producto_sucursal ps
-         JOIN public.producto p ON p.id = ps.producto_id
+      FROM public.producto_sucursal_catalogo ps
+      JOIN public.producto_catalogo p ON p.id = ps.producto_id
          JOIN public.subtipo sub ON sub.id = p.subtipo_id
          WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND sub.nombre IS NOT NULL
          ORDER BY valor`,
@@ -263,11 +275,11 @@ export class ProductoSucursalRepository {
     return rows[0] ?? null;
   }
 
-  async create(data: ProductoSucursalData, tenantId: string) {
-    const { rows } = await pool.query(
+  async create(data: ProductoSucursalData, tenantId: string, client?: PoolClient) {
+    const { rows } = await (client ?? pool).query(
       `INSERT INTO public.producto_sucursal
-        (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado)
-       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado, moneda_precio_venta, precio_referencia_confirmada)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12, $13
        FROM public.producto p
        JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
        WHERE p.id = $1 AND p.tenant_id = $11 AND p.deleted_at IS NULL
@@ -284,16 +296,20 @@ export class ProductoSucursalRepository {
         data.stock_minimo ?? 0,
         data.habilitado ?? true,
         tenantId,
+        data.moneda_precio_venta ?? 'ARS',
+        data.precio_referencia_confirmada ?? true,
       ]
     );
     return rows[0];
   }
 
-  async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string) {
+  async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string, client?: PoolClient) {
     const fields = [
       'costo_reposicion',
       'precio_venta_ars',
       'precio_venta_usd',
+      'moneda_precio_venta',
+      'precio_referencia_confirmada',
       'iva',
       'margen_minimo',
       'descuento',
@@ -318,7 +334,7 @@ export class ProductoSucursalRepository {
 
     values.push(id, tenantId);
 
-    const { rows } = await pool.query(
+    const { rows } = await (client ?? pool).query(
       `UPDATE public.producto_sucursal ps
        SET ${updates.join(', ')}
        FROM public.producto p

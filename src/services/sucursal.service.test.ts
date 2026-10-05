@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SucursalService } from './sucursal.service';
 import { SucursalRepository } from '../repositories/sucursal.repository';
 import { BusinessError } from '../utils/errors';
+import { CotizacionRepository } from '../repositories/cotizacion.repository';
 
 vi.mock('../repositories/sucursal.repository');
+vi.mock('../repositories/cotizacion.repository');
 
 describe('SucursalService', () => {
   let service: SucursalService;
@@ -11,11 +13,17 @@ describe('SucursalService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: null, cotizacion_version: '0', actualizada_at: null });
     service = new SucursalService();
     vi.mocked(SucursalRepository.prototype.contarActivas).mockResolvedValue(3);
   });
 
   describe('create', () => {
+    it('impide cargar un dólar por sucursal cuando existe referencia central', async () => {
+      vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: '1200.000000', cotizacion_version: '1', actualizada_at: null });
+      await expect(service.create(TENANT, { nombre: 'Sur', valor_dolar: 1300 })).rejects.toThrow('El dólar se configura para toda la empresa');
+      expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
+    });
     it('crea con los datos validados', async () => {
       vi.mocked(SucursalRepository.prototype.create).mockResolvedValue({ id: 's1' } as any);
 

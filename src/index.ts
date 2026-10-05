@@ -22,6 +22,7 @@ import pedidoReposicionRoutes from './routes/pedido-reposicion.routes';
 import tipoOperacionRoutes   from './routes/tipo-operacion.routes';
 import regionRoutes          from './routes/region.routes';
 import descuentoEngineRoutes from './routes/descuento-engine.routes';
+import cotizacionRoutes from './routes/cotizacion.routes';
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -53,6 +54,7 @@ app.use('/api/pedidos-reposicion', pedidoReposicionRoutes);
 app.use('/api/tipos-operacion',    tipoOperacionRoutes);
 app.use('/api/regiones',           regionRoutes);
 app.use('/api/descuentos',         descuentoEngineRoutes);
+app.use('/api/configuracion',     cotizacionRoutes);
 
 app.listen(port, () => {
   console.log(`[server]: Server is running at http://localhost:${port}`);

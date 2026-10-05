@@ -4,7 +4,7 @@ import { OperacionFiltros } from '../repositories/operacion.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
-import { BusinessError, ConflictError } from '../utils/errors';
+import { BusinessError, ConflictError, CatalogoError } from '../utils/errors';
 import { TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new OperacionService();
@@ -140,6 +140,10 @@ export class OperacionController {
         res.status(409).json(errorResponse(error.message));
         return;
       }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         const status = error.message === 'Operación no encontrada' ? 404 : 400;
         res.status(status).json(errorResponse(error.message));
@@ -184,6 +188,10 @@ export class OperacionController {
     } catch (error: unknown) {
       if (error instanceof ConflictError) {
         res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
         return;
       }
       if (error instanceof BusinessError) {
@@ -243,6 +251,10 @@ export class OperacionController {
         res.status(409).json(errorResponse(error.message));
         return;
       }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         const status = error.message === 'Operación no encontrada' ? 404 : 400;
         res.status(status).json(errorResponse(error.message));
@@ -269,6 +281,10 @@ export class OperacionController {
     } catch (error: unknown) {
       if (error instanceof ConflictError) {
         res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
         return;
       }
       if (error instanceof BusinessError) {
@@ -433,6 +449,10 @@ export class OperacionController {
       const data = await service.crear(tenantId, authId, { ...body, modo_reparto: modoReparto } as any);
       res.status(201).json({ status: 'success', data });
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;

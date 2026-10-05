@@ -8,6 +8,8 @@ import {
 } from '../utils/cascada-descuentos';
 import { resolverDescuento } from './descuento-categoria.service';
 import { BusinessError } from '../utils/errors';
+import { CatalogoError } from '../utils/errors';
+import { ContextoMonetario, resolverPrecio } from '../utils/moneda';
 
 export interface EvaluarItemInput {
   productoSucursalId?: string;
@@ -47,6 +49,7 @@ export interface ResumenEvaluacionOperacion {
 }
 
 export interface EvaluacionOperacionResultado {
+  contexto_monetario?: ContextoMonetario;
   sucursal: {
     id: string;
     nombre: string;
@@ -72,7 +75,8 @@ export class DescuentoEngineService {
     tenantId: string,
     sucursalId: string,
     clienteId: string | null | undefined,
-    items: EvaluarItemInput[]
+    items: EvaluarItemInput[],
+    cotizacionVersion?: string
   ): Promise<EvaluacionOperacionResultado> {
     if (!sucursalId) {
       throw new BusinessError('La sucursal es obligatoria.');
@@ -80,7 +84,12 @@ export class DescuentoEngineService {
 
     // 1. Obtener datos de la sucursal
     const { rows: sucursalRows } = await pool.query(
-      'SELECT id, nombre, descuento FROM public.sucursal WHERE id = $1 AND tenant_id = $2',
+      `SELECT s.id, s.nombre, s.descuento,
+        jsonb_build_object('cotizacion_usd_ars', t.cotizacion_usd_ars::text,
+          'cotizacion_version', t.cotizacion_version::text,
+          'actualizada_at', t.cotizacion_actualizada_at) AS contexto_monetario
+        FROM public.sucursal s JOIN public.tenant t ON t.id = s.tenant_id
+        WHERE s.id = $1 AND s.tenant_id = $2`,
       [sucursalId, tenantId]
     );
     const sucursalData = sucursalRows[0];
@@ -88,6 +97,10 @@ export class DescuentoEngineService {
       throw new BusinessError('La sucursal indicada no existe.');
     }
     const descuentoSucursal = sucursalData.descuento != null ? Number(sucursalData.descuento) : 0;
+    const contexto: ContextoMonetario = sucursalData.contexto_monetario ?? { cotizacion_usd_ars: null, cotizacion_version: '0', actualizada_at: null };
+    if (cotizacionVersion !== undefined && cotizacionVersion !== contexto.cotizacion_version) {
+      throw new CatalogoError('Cambió el valor del dólar. Actualizá la evaluación de precios.', 'COTIZACION_CAMBIO', 409);
+    }
 
     // 2. Obtener datos del cliente si corresponde
     let clienteData: {
@@ -174,6 +187,7 @@ export class DescuentoEngineService {
             p.codigo,
             p.nombre,
             p.precio_base,
+            p.precio_base_usd, p.moneda_precio_base,
             ps.costo_reposicion,
             ps.margen_minimo,
             ps.descuento AS descuento_producto_sucursal,
@@ -186,9 +200,9 @@ export class DescuentoEngineService {
           JOIN public.producto p ON p.id = ps.producto_id
           LEFT JOIN public.tipo t ON t.id = p.tipo_id
           LEFT JOIN public.subtipo st ON st.id = p.subtipo_id
-          WHERE ps.id = $1 AND ps.sucursal_id = $2
+          WHERE ps.id = $1 AND ps.sucursal_id = $2 AND p.tenant_id = $3
         `;
-        params = [item.productoSucursalId, sucursalId];
+        params = [item.productoSucursalId, sucursalId, tenantId];
       } else if (item.productoId) {
         query = `
           SELECT
@@ -197,6 +211,7 @@ export class DescuentoEngineService {
             p.codigo,
             p.nombre,
             p.precio_base,
+            p.precio_base_usd, p.moneda_precio_base,
             ps.costo_reposicion,
             ps.margen_minimo,
             ps.descuento AS descuento_producto_sucursal,
@@ -220,7 +235,10 @@ export class DescuentoEngineService {
       const prod = prodRows[0];
       if (!prod) continue;
 
-      const precioBase = prod.precio_base != null ? Number(prod.precio_base) : 0;
+      const monedaBase = prod.moneda_precio_base === 'USD' ? 'USD' : 'ARS';
+      const precioResuelto = resolverPrecio(monedaBase, monedaBase === 'USD' ? prod.precio_base_usd : prod.precio_base, contexto);
+      if (monedaBase === 'USD' && !precioResuelto.ars) throw new CatalogoError('Configurá el dólar para evaluar este precio USD.', 'COTIZACION_REQUERIDA');
+      const precioBase = precioResuelto.ars != null ? Number(precioResuelto.ars) : 0;
       const costoReposicion = prod.costo_reposicion != null ? Number(prod.costo_reposicion) : null;
       const margenMinimo = prod.margen_minimo != null ? Number(prod.margen_minimo) : null;
 
@@ -380,6 +398,7 @@ export class DescuentoEngineService {
       cliente: clienteData,
       items: itemsEvaluados,
       resumen,
+      contexto_monetario: contexto,
     };
   }
 }

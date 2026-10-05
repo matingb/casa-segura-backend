@@ -1,6 +1,7 @@
 import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositories/producto.repository';
 import { uploadProductImage, getPublicUrl } from './storage.service';
 import { BusinessError } from '../utils/errors';
+import { escribirConPrecio, validarContratoPrecio } from './precio-catalogo.service';
 
 export class ProductoService {
   private productoRepository: ProductoRepository;
@@ -52,7 +53,15 @@ export class ProductoService {
 
   async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
     this.validarDescuentoBase(data.descuento_base);
-    return this.productoRepository.create({ ...data, tenant_id: tenantId });
+    validarContratoPrecio(data, ['precio_base', 'precio_base_usd', 'moneda_precio_base']);
+    if ('precio' in data) {
+      const producto = await escribirConPrecio(tenantId, data.precio ?? null, (client, precio) =>
+        this.productoRepository.create({ ...data, tenant_id: tenantId, precio_base: precio.ars,
+          precio_base_usd: precio.usd, moneda_precio_base: precio.importe_referencia == null ? 'ARS' : precio.moneda_referencia }, client));
+      return this.productoRepository.findById(producto.id, tenantId);
+    }
+    const producto = await this.productoRepository.create({ ...data, tenant_id: tenantId });
+    return this.productoRepository.findById(producto.id, tenantId);
   }
 
   async updateProducto(id: string, data: Partial<ProductoData>, tenantId: string) {
@@ -61,7 +70,15 @@ export class ProductoService {
     if ('descuento_base' in data) {
       this.validarDescuentoBase(data.descuento_base);
     }
-    return this.productoRepository.update(id, data, tenantId);
+    validarContratoPrecio(data, ['precio_base', 'precio_base_usd', 'moneda_precio_base']);
+    if ('precio' in data) {
+      await escribirConPrecio(tenantId, data.precio ?? null, (client, precio) =>
+        this.productoRepository.update(id, { ...data, precio_base: precio.ars, precio_base_usd: precio.usd,
+          moneda_precio_base: precio.importe_referencia == null ? 'ARS' : precio.moneda_referencia }, tenantId, client));
+      return this.productoRepository.findById(id, tenantId);
+    }
+    const guardado = await this.productoRepository.update(id, data, tenantId);
+    return guardado ? this.productoRepository.findById(id, tenantId) : null;
   }
 
   async uploadImage(id: string, tenantId: string, buffer: Buffer, mimetype: string) {

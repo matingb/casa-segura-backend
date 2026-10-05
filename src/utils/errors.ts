@@ -11,3 +11,10 @@ export class ConflictError extends Error {
     this.name = 'ConflictError';
   }
 }
+
+export class CatalogoError extends BusinessError {
+  constructor(message: string, public code: string, public status = 400) {
+    super(message);
+    this.name = 'CatalogoError';
+  }
+}
