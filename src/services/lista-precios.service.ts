@@ -63,11 +63,12 @@ export class ListaPreciosService {
       const aArs = (valor: Decimal) => moneda === 'USD' ? valor.mul(contexto.cotizacion_usd_ars!).toFixed(2) : valor.toFixed(2);
       return {
         id: row.id, productoId: row.producto_id, codigo: row.codigo, nombre: row.nombre,
-        marca: row.marca, modelo: row.modelo, subtipoNombre: row.subtipo_nombre ?? '',
+        marca: row.marca, modelo: row.modelo, subtipoNombre: row.subtipo_nombre ?? '', subtipoId: row.subtipo_id ?? null, tipoId: row.tipo_id ?? null,
         monedaReferencia: moneda, importeReferencia: precio.importe_referencia, importeFinalReferencia: final.importe_referencia, estadoPrecio: precio.estado,
         precioListaArs: precio.ars, precioFinalArs: final.ars, precioFinalUsd: final.usd,
         descuentoTotalPorcentaje: cascada.descuentoEfectivo, iva: row.iva,
         descuentosDetalle: cascada.aportes.map((aporte) => `${aporte.nivel}: -${aporte.porcentaje}%`),
+        descuentosAportes: cascada.aportes.map((aporte) => ({ nivel: aporte.nivel, porcentaje: aporte.porcentaje })),
         precioSinTope: principal == null ? null : aArs(sinTope),
         precioMinimo: minimo == null ? null : aArs(minimo),
         costoReposicion: row.costo_reposicion, margenMinimo: row.margen_minimo,
