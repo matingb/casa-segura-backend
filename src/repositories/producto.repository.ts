@@ -56,7 +56,10 @@ export interface ProductoData {
   precio_base?: number | string | null;
   precio_base_usd?: string | null;
   moneda_precio_base?: Moneda;
-  costo_reposicion_base?: number | null;
+  costo?: PrecioInput | null;
+  costo_reposicion_base?: number | string | null;
+  costo_reposicion_base_usd?: string | null;
+  moneda_costo_reposicion_base?: Moneda;
   /** Descuento del producto para todas las sucursales (nivel 3 de la cascada). */
   descuento_base?: number | null;
   codigo_qr?: string | null;
@@ -217,8 +220,9 @@ export class ProductoRepository {
         (tenant_id, subtipo_id, codigo, codigo_barra_proveedor, nombre, marca, modelo,
          color, presentacion, alto, unidad_alto, ancho, unidad_ancho, profundidad, unidad_profundidad,
          peso_unitario, unidad_peso_unitario, imagen_url, descripcion, activo,
-         precio_base, costo_reposicion_base, descuento_base, codigo_qr, moneda_precio_base, precio_base_usd)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+         precio_base, costo_reposicion_base, descuento_base, codigo_qr, moneda_precio_base, precio_base_usd,
+         moneda_costo_reposicion_base, costo_reposicion_base_usd)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        RETURNING *`,
       [
         data.tenant_id,
@@ -247,6 +251,8 @@ export class ProductoRepository {
         data.codigo_qr ?? null,
         data.moneda_precio_base ?? 'ARS',
         data.precio_base_usd ?? null,
+        data.moneda_costo_reposicion_base ?? 'ARS',
+        data.costo_reposicion_base_usd ?? null,
       ]
     );
     return rows[0];
@@ -261,6 +267,7 @@ export class ProductoRepository {
       'imagen_url', 'descripcion', 'activo',
       'precio_base', 'costo_reposicion_base', 'descuento_base', 'codigo_qr',
       'moneda_precio_base', 'precio_base_usd',
+      'moneda_costo_reposicion_base', 'costo_reposicion_base_usd',
     ];
 
     const updates: string[] = [];

@@ -27,3 +27,16 @@ describe('validarMargenMinimoConfiguracion', () => {
     })).not.toThrow();
   });
 });
+
+describe('validarMargenMinimoConfiguracion con costo y precio en USD', () => {
+  it('compara en USD sin depender del redondeo de los equivalentes', () => {
+    expect(() => validarMargenMinimoConfiguracion({
+      costo_reposicion: 12345.68, precio_venta_ars: 13580.25, margen_minimo: 10,
+      costo_usd: '10.0000', precio_venta_usd_principal: '11.0000',
+    })).not.toThrow();
+    expect(() => validarMargenMinimoConfiguracion({
+      costo_reposicion: 12000, precio_venta_ars: 13200, margen_minimo: 10,
+      costo_usd: '10.0000', precio_venta_usd_principal: '10.9999',
+    })).toThrow(BusinessError);
+  });
+});

@@ -1,7 +1,44 @@
 import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositories/producto.repository';
 import { uploadProductImage, getPublicUrl } from './storage.service';
 import { BusinessError } from '../utils/errors';
-import { escribirConPrecio, validarContratoPrecio } from './precio-catalogo.service';
+import { columnasMonto, escribirConMontos, MontosResueltos, validarContratoPrecio } from './precio-catalogo.service';
+
+const CAMPOS_PRECIO = ['precio_base', 'precio_base_usd', 'moneda_precio_base'];
+const CAMPOS_COSTO = ['costo_reposicion_base_usd', 'moneda_costo_reposicion_base'];
+
+/** Columnas de producto que surgen del precio y del costo resueltos. */
+function columnasMontos({ precio, costo }: MontosResueltos): Partial<ProductoData> {
+  const p = precio && columnasMonto(precio);
+  const c = costo && columnasMonto(costo);
+  return {
+    ...(p ? { precio_base: p.ars, precio_base_usd: p.usd, moneda_precio_base: p.moneda } : {}),
+    ...(c ? { costo_reposicion_base: c.ars, costo_reposicion_base_usd: c.usd, moneda_costo_reposicion_base: c.moneda } : {}),
+  };
+}
+
+/**
+ * Valida los campos monetarios crudos y normaliza el contrato anterior: un
+ * `costo_reposicion_base` numérico sin `costo` es un principal ARS.
+ */
+function normalizarMontos<T extends Partial<ProductoData>>(data: T): T {
+  validarContratoPrecio(data, CAMPOS_PRECIO);
+  validarContratoPrecio(data, CAMPOS_COSTO, 'Cargá el costo de reposición con su moneda de referencia.');
+  if ('costo' in data) {
+    const resto = { ...data };
+    delete resto.costo_reposicion_base;
+    return resto;
+  }
+  if ('costo_reposicion_base' in data) {
+    return { ...data, moneda_costo_reposicion_base: 'ARS', costo_reposicion_base_usd: null };
+  }
+  return data;
+}
+
+const tieneMontos = (data: Partial<ProductoData>) => 'precio' in data || 'costo' in data;
+const montosDe = (data: Partial<ProductoData>) => ({
+  ...('precio' in data ? { precio: data.precio ?? null } : {}),
+  ...('costo' in data ? { costo: data.costo ?? null } : {}),
+});
 
 export class ProductoService {
   private productoRepository: ProductoRepository;
@@ -53,11 +90,10 @@ export class ProductoService {
 
   async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
     this.validarDescuentoBase(data.descuento_base);
-    validarContratoPrecio(data, ['precio_base', 'precio_base_usd', 'moneda_precio_base']);
-    if ('precio' in data) {
-      const producto = await escribirConPrecio(tenantId, data.precio ?? null, (client, precio) =>
-        this.productoRepository.create({ ...data, tenant_id: tenantId, precio_base: precio.ars,
-          precio_base_usd: precio.usd, moneda_precio_base: precio.importe_referencia == null ? 'ARS' : precio.moneda_referencia }, client));
+    data = normalizarMontos(data);
+    if (tieneMontos(data)) {
+      const producto = await escribirConMontos(tenantId, montosDe(data), (client, resueltos) =>
+        this.productoRepository.create({ ...data, tenant_id: tenantId, ...columnasMontos(resueltos) }, client));
       return this.productoRepository.findById(producto.id, tenantId);
     }
     const producto = await this.productoRepository.create({ ...data, tenant_id: tenantId });
@@ -70,11 +106,10 @@ export class ProductoService {
     if ('descuento_base' in data) {
       this.validarDescuentoBase(data.descuento_base);
     }
-    validarContratoPrecio(data, ['precio_base', 'precio_base_usd', 'moneda_precio_base']);
-    if ('precio' in data) {
-      await escribirConPrecio(tenantId, data.precio ?? null, (client, precio) =>
-        this.productoRepository.update(id, { ...data, precio_base: precio.ars, precio_base_usd: precio.usd,
-          moneda_precio_base: precio.importe_referencia == null ? 'ARS' : precio.moneda_referencia }, tenantId, client));
+    data = normalizarMontos(data);
+    if (tieneMontos(data)) {
+      await escribirConMontos(tenantId, montosDe(data), (client, resueltos) =>
+        this.productoRepository.update(id, { ...data, ...columnasMontos(resueltos) }, tenantId, client));
       return this.productoRepository.findById(id, tenantId);
     }
     const guardado = await this.productoRepository.update(id, data, tenantId);

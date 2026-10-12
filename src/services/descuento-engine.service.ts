@@ -9,7 +9,7 @@ import {
 import { resolverDescuento } from './descuento-categoria.service';
 import { BusinessError } from '../utils/errors';
 import { CatalogoError } from '../utils/errors';
-import { ContextoMonetario, resolverPrecio } from '../utils/moneda';
+import { ContextoMonetario, costoArsVigente, resolverPrecio } from '../utils/moneda';
 
 export interface EvaluarItemInput {
   productoSucursalId?: string;
@@ -188,7 +188,7 @@ export class DescuentoEngineService {
             p.nombre,
             p.precio_base,
             p.precio_base_usd, p.moneda_precio_base,
-            ps.costo_reposicion,
+            ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion,
             ps.margen_minimo,
             ps.descuento AS descuento_producto_sucursal,
             p.descuento_base AS descuento_producto_base,
@@ -212,7 +212,7 @@ export class DescuentoEngineService {
             p.nombre,
             p.precio_base,
             p.precio_base_usd, p.moneda_precio_base,
-            ps.costo_reposicion,
+            ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion,
             ps.margen_minimo,
             ps.descuento AS descuento_producto_sucursal,
             p.descuento_base AS descuento_producto_base,
@@ -239,7 +239,8 @@ export class DescuentoEngineService {
       const precioResuelto = resolverPrecio(monedaBase, monedaBase === 'USD' ? prod.precio_base_usd : prod.precio_base, contexto);
       if (monedaBase === 'USD' && !precioResuelto.ars) throw new CatalogoError('Configurá el dólar para evaluar este precio USD.', 'COTIZACION_REQUERIDA');
       const precioBase = precioResuelto.ars != null ? Number(precioResuelto.ars) : 0;
-      const costoReposicion = prod.costo_reposicion != null ? Number(prod.costo_reposicion) : null;
+      const costoArs = costoArsVigente(prod.moneda_costo_reposicion, prod.costo_reposicion, prod.costo_reposicion_usd, contexto);
+      const costoReposicion = costoArs != null ? Number(costoArs) : null;
       const margenMinimo = prod.margen_minimo != null ? Number(prod.margen_minimo) : null;
 
       // Nivel 2: Descuento de Categoría / Subcategoría general

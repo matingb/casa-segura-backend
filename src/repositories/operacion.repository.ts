@@ -7,6 +7,7 @@ import { CotizacionRepository } from './cotizacion.repository';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 import { ModoReparto, CuentaRepartoResuelta, ResultadoReparto, resolverReparto } from '../utils/reparto-cuentas';
 import { calcularPrecioMinimo } from '../utils/cascada-descuentos';
+import { costoArsVigente } from '../utils/moneda';
 
 export interface OperacionFiltros {
   tipo?: string;
@@ -1208,20 +1209,26 @@ export class OperacionRepository {
   private async validarMargenMinimo(client: PoolClient, items: OperacionItemInput[], tenantId: string, version?: string) {
     for (const item of items) {
       const { rows } = await client.query(
-        `SELECT ps.costo_reposicion, ps.margen_minimo, p.nombre, ps.moneda_precio_venta, p.moneda_precio_base
+        `SELECT ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion, ps.margen_minimo,
+                p.nombre, ps.moneda_precio_venta, p.moneda_precio_base,
+                t.cotizacion_usd_ars, t.cotizacion_version::text AS cotizacion_version, t.cotizacion_actualizada_at
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
+         JOIN public.tenant t ON t.id = p.tenant_id
          WHERE ps.id = $1 AND p.tenant_id = $2`,
         [item.producto_sucursal_id, tenantId]
       );
       const fila = rows[0];
       if (!fila) continue; // ajustarStockVenta ya reporta el producto inexistente
 
-      if ((fila.moneda_precio_venta === 'USD' || fila.moneda_precio_base === 'USD') && version === undefined) {
+      if ((fila.moneda_precio_venta === 'USD' || fila.moneda_precio_base === 'USD' || fila.moneda_costo_reposicion === 'USD') && version === undefined) {
         throw new CatalogoError('La venta usa un precio vinculado a USD. Confirmá la cotización del catálogo antes de registrarla.', 'COTIZACION_REQUERIDA', 409);
       }
 
-      const costo = fila.costo_reposicion !== null ? Number(fila.costo_reposicion) : null;
+      const costoArs = costoArsVigente(fila.moneda_costo_reposicion, fila.costo_reposicion, fila.costo_reposicion_usd, {
+        cotizacion_usd_ars: fila.cotizacion_usd_ars, cotizacion_version: fila.cotizacion_version, actualizada_at: fila.cotizacion_actualizada_at,
+      });
+      const costo = costoArs !== null ? Number(costoArs) : null;
       const margen = fila.margen_minimo !== null ? Number(fila.margen_minimo) : null;
       const precioMinimo = calcularPrecioMinimo(costo, margen);
       if (precioMinimo === null) continue;

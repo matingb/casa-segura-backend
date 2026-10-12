@@ -17,7 +17,8 @@ const JOIN_QUERY = `
          p.activo          AS producto_activo,
          p.precio_base_ars_resuelto AS producto_precio_base,
          p.precio_resuelto AS producto_precio_resuelto,
-         p.costo_reposicion_base AS producto_costo_reposicion_base,
+         p.costo_reposicion_base_ars_resuelto AS producto_costo_reposicion_base,
+         p.costo_reposicion_base_resuelto AS producto_costo_reposicion_resuelto,
          p.descuento_base  AS producto_descuento_base,
          s.nombre          AS sucursal_nombre
   FROM public.producto_sucursal_catalogo ps
@@ -55,7 +56,10 @@ const SORTABLE_COLUMNS: Record<string, string> = {
 export interface ProductoSucursalData {
   producto_id: string;
   sucursal_id: string;
-  costo_reposicion?: number | null;
+  costo?: PrecioInput | null;
+  costo_reposicion?: number | string | null;
+  costo_reposicion_usd?: string | null;
+  moneda_costo_reposicion?: Moneda;
   precio?: PrecioInput | null;
   precio_venta_ars?: number | string | null;
   precio_venta_usd?: number | string | null;
@@ -189,7 +193,8 @@ export class ProductoSucursalRepository {
              p.activo          AS producto_activo,
              p.precio_base_ars_resuelto AS producto_precio_base,
              p.precio_resuelto AS producto_precio_resuelto,
-             p.costo_reposicion_base AS producto_costo_reposicion_base,
+             p.costo_reposicion_base_ars_resuelto AS producto_costo_reposicion_base,
+             p.costo_reposicion_base_resuelto AS producto_costo_reposicion_resuelto,
              p.descuento_base  AS producto_descuento_base,
              s.nombre          AS sucursal_nombre
       FROM public.producto_sucursal_catalogo ps
@@ -278,8 +283,9 @@ export class ProductoSucursalRepository {
   async create(data: ProductoSucursalData, tenantId: string, client?: PoolClient) {
     const { rows } = await (client ?? pool).query(
       `INSERT INTO public.producto_sucursal
-        (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado, moneda_precio_venta, precio_referencia_confirmada)
-       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12, $13
+        (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado, moneda_precio_venta, precio_referencia_confirmada,
+         moneda_costo_reposicion, costo_reposicion_usd)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15
        FROM public.producto p
        JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
        WHERE p.id = $1 AND p.tenant_id = $11 AND p.deleted_at IS NULL
@@ -298,6 +304,8 @@ export class ProductoSucursalRepository {
         tenantId,
         data.moneda_precio_venta ?? 'ARS',
         data.precio_referencia_confirmada ?? true,
+        data.moneda_costo_reposicion ?? 'ARS',
+        data.costo_reposicion_usd ?? null,
       ]
     );
     return rows[0];
@@ -306,6 +314,8 @@ export class ProductoSucursalRepository {
   async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string, client?: PoolClient) {
     const fields = [
       'costo_reposicion',
+      'costo_reposicion_usd',
+      'moneda_costo_reposicion',
       'precio_venta_ars',
       'precio_venta_usd',
       'moneda_precio_venta',

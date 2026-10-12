@@ -69,3 +69,36 @@ export function prepararPrecio(input: PrecioInput | null, contexto: ContextoMone
   if (precio.usd) decimalValido(precio.usd, 'El equivalente USD', 4, 10);
   return precio;
 }
+
+/**
+ * Costo de reposición con moneda de referencia. A diferencia del precio, un
+ * principal ARS no depende del dólar: se puede guardar sin cotización y sin
+ * confirmar versión. Un principal USD exige la cotización que el usuario vio.
+ */
+export function prepararCosto(input: PrecioInput | null, contexto: ContextoMonetario): PrecioResuelto {
+  if (input === null) return resolverPrecio('ARS', null, contexto);
+  if (!input || !['ARS', 'USD'].includes(input.moneda_referencia)) {
+    throw new CatalogoError('Elegí ARS o USD como moneda del costo de reposición.', 'MONEDA_INVALIDA');
+  }
+  const moneda = input.moneda_referencia;
+  if (input.importe_referencia === null) return resolverPrecio(moneda, null, contexto);
+  if (moneda === 'USD') {
+    if (!contexto.cotizacion_usd_ars) throw new CatalogoError('Configurá el valor del dólar para cargar un costo en USD.', 'COTIZACION_REQUERIDA');
+    if (typeof input.cotizacion_version !== 'string' || input.cotizacion_version !== contexto.cotizacion_version) {
+      throw new CatalogoError('Cambió el valor del dólar. Revisá el equivalente del costo y confirmá la nueva cotización.', 'COTIZACION_CAMBIO', 409);
+    }
+  }
+  const principal = decimalValido(input.importe_referencia, 'El costo de reposición', moneda === 'ARS' ? 2 : 4, moneda === 'ARS' ? 12 : 10);
+  const costo = resolverPrecio(moneda, principal, contexto);
+  if (costo.ars) decimalValido(costo.ars, 'El equivalente ARS del costo', 2, 12);
+  if (costo.usd) decimalValido(costo.usd, 'El equivalente USD del costo', 4, 10);
+  return costo;
+}
+
+/** Costo en ARS con la cotización vigente, a partir de las columnas guardadas. */
+export function costoArsVigente(moneda: unknown, ars: Decimal.Value | null, usd: Decimal.Value | null, contexto: ContextoMonetario): string | null {
+  if (moneda !== 'USD') return ars == null ? null : new Dinero(ars).toFixed(2);
+  if (usd == null) return null;
+  if (!contexto.cotizacion_usd_ars) throw new CatalogoError('Configurá el valor del dólar para evaluar costos en USD.', 'COTIZACION_REQUERIDA');
+  return new Dinero(usd).mul(contexto.cotizacion_usd_ars).toFixed(2);
+}

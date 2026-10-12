@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decimalValido, prepararPrecio, resolverPrecio } from './moneda';
+import { costoArsVigente, decimalValido, prepararCosto, prepararPrecio, resolverPrecio } from './moneda';
 const contexto = { cotizacion_usd_ars: '1200.000000', cotizacion_version: '3', actualizada_at: null };
 describe('Precios de catálogo', () => {
   it('conserva el principal USD y sus cuatro decimales', () => {
@@ -23,5 +23,22 @@ describe('Precios de catálogo', () => {
     expect(() => prepararPrecio({ moneda_referencia: 'USD', importe_referencia: '100', cotizacion_version: '2' }, contexto)).toThrow('Cambió');
     expect(() => prepararPrecio({ moneda_referencia: 'USD', importe_referencia: '0.12345', cotizacion_version: '3' }, contexto)).toThrow('decimales');
     expect(() => prepararPrecio({ moneda_referencia: 'USD', importe_referencia: '9999999999', cotizacion_version: '3' }, contexto)).toThrow('rango');
+  });
+});
+describe('Costo de reposición', () => {
+  const sin = { ...contexto, cotizacion_usd_ars: null };
+  it('acepta un costo ARS sin cotización ni versión', () => {
+    expect(prepararCosto({ moneda_referencia: 'ARS', importe_referencia: '1500.5', cotizacion_version: '0' }, sin)).toMatchObject({ ars: '1500.50', usd: null, moneda_referencia: 'ARS' });
+  });
+  it('un costo USD exige la cotización vigente', () => {
+    expect(prepararCosto({ moneda_referencia: 'USD', importe_referencia: '10.1234', cotizacion_version: '3' }, contexto)).toMatchObject({ usd: '10.1234', ars: '12148.08' });
+    expect(() => prepararCosto({ moneda_referencia: 'USD', importe_referencia: '10', cotizacion_version: '2' }, contexto)).toThrow('Cambió');
+    expect(() => prepararCosto({ moneda_referencia: 'USD', importe_referencia: '10', cotizacion_version: '3' }, sin)).toThrow('dólar');
+  });
+  it('resuelve el costo ARS vigente según la moneda guardada', () => {
+    expect(costoArsVigente('ARS', '1000', null, sin)).toBe('1000.00');
+    expect(costoArsVigente('USD', '900', '10', contexto)).toBe('12000.00');
+    expect(costoArsVigente('USD', '900', null, contexto)).toBeNull();
+    expect(() => costoArsVigente('USD', '900', '10', sin)).toThrow();
   });
 });

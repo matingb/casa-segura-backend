@@ -3,7 +3,7 @@ import Decimal from 'decimal.js';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
 import { CatalogoError } from '../utils/errors';
 import { calcularCascada } from '../utils/cascada-descuentos';
-import { Dinero, resolverPrecio } from '../utils/moneda';
+import { costoArsVigente, Dinero, resolverPrecio } from '../utils/moneda';
 
 export class ListaPreciosService {
   async obtener(tenantId: string, sucursalId: string, clienteId: string) {
@@ -39,8 +39,14 @@ export class ListaPreciosService {
       const precio = resolverPrecio(moneda, principal, contexto);
       if (!row.precio_referencia_confirmada && row.precio_venta_usd != null) precio.estado = 'LEGADO_PENDIENTE_REVISION';
       if (moneda === 'USD' && !contexto.cotizacion_usd_ars) throw new CatalogoError('Configurá el valor del dólar para evaluar precios USD.', 'COTIZACION_REQUERIDA');
-      const costo = row.costo_reposicion == null ? null : new Dinero(row.costo_reposicion);
-      const costoNativo = moneda === 'USD' && costo ? costo.div(contexto.cotizacion_usd_ars!) : costo;
+      // Costo en la moneda del precio: mismo principal si coinciden, si no se
+      // convierte con la cotización vigente.
+      const monedaCosto = row.moneda_costo_reposicion === 'USD' ? 'USD' : 'ARS';
+      const costoArs = costoArsVigente(monedaCosto, row.costo_reposicion, row.costo_reposicion_usd, contexto);
+      const costoNativo = moneda === 'USD'
+        ? monedaCosto === 'USD' ? (row.costo_reposicion_usd == null ? null : new Dinero(row.costo_reposicion_usd))
+          : costoArs == null ? null : new Dinero(costoArs).div(contexto.cotizacion_usd_ars!)
+        : costoArs == null ? null : new Dinero(costoArs);
       const categoria = subtipos.get(row.subtipo_id) ?? tipos.get(row.tipo_id);
       const especial = especiales.get(row.producto_id);
       // Perfil LISTA_CLIENTE: conserva niveles y origen de la lista anterior.
@@ -71,7 +77,7 @@ export class ListaPreciosService {
         descuentosAportes: cascada.aportes.map((aporte) => ({ nivel: aporte.nivel, porcentaje: aporte.porcentaje })),
         precioSinTope: principal == null ? null : aArs(sinTope),
         precioMinimo: minimo == null ? null : aArs(minimo),
-        costoReposicion: row.costo_reposicion, margenMinimo: row.margen_minimo,
+        costoReposicion: costoArs, margenMinimo: row.margen_minimo,
         noAlcanzaMargen: noAlcanza,
         motivoMargen: noAlcanza ? 'Los descuentos configurados no alcanzan el margen mínimo de la sucursal.' : undefined,
       };
