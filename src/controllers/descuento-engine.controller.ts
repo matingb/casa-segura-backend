@@ -29,6 +29,18 @@ export class DescuentoEngineController {
       else { console.error('[ListaPrecios]', error); res.status(500).json(errorResponse('No se pudo generar la lista de precios.')); }
     }
   };
+  listaSucursal = async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (typeof req.query.sucursalId !== 'string') {
+        throw new CatalogoError('Elegí una sucursal.', 'CONTEXTO_INVALIDO');
+      }
+      res.json(successResponse(await new ListaPreciosService().obtenerGeneral(
+        await getTenantIdByAuthId(req.user!.id), req.query.sucursalId)));
+    } catch (error) {
+      if (error instanceof CatalogoError) res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+      else { console.error('[ListaPrecios]', error); res.status(500).json(errorResponse('No se pudo generar la lista de precios.')); }
+    }
+  };
   evaluar = async (
     req: TypedRequestBody<EvaluarOperacionBody>,
     res: Response

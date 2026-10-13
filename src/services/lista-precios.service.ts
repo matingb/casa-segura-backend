@@ -2,23 +2,21 @@ import { pool } from '../config/db';
 import Decimal from 'decimal.js';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
 import { CatalogoError } from '../utils/errors';
-import { calcularCascada } from '../utils/cascada-descuentos';
+import { calcularCascada, EntradaCascada, resolverDescuentoProducto } from '../utils/cascada-descuentos';
+import { resolverDescuento } from './descuento-categoria.service';
 import { costoArsVigente, Dinero, resolverPrecio } from '../utils/moneda';
 
+type NivelesCliente = Pick<EntradaCascada, 'descuentoRegionCliente' | 'descuentoCategoriaCliente' | 'descuentoProductoCliente' | 'descuentoCliente'>;
+interface FilaProducto { producto_id: string; tipo_id: string | null; subtipo_id: string | null }
+
+const numero = (valor: unknown) => (valor == null ? null : Number(valor));
+
 export class ListaPreciosService {
+  /** Lista de un cliente: los niveles generales más los propios del cliente. */
   async obtener(tenantId: string, sucursalId: string, clienteId: string) {
-    const { rows: sucursales } = await pool.query('SELECT id, nombre FROM public.sucursal WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [sucursalId, tenantId]);
     const { rows: clientes } = await pool.query('SELECT id, nombre, descuento_porcentaje FROM public.cliente WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [clienteId, tenantId]);
-    if (!sucursales[0] || !clientes[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
-    const [contexto, productos, categorias, descuentos, regiones] = await Promise.all([
-      new CotizacionRepository().obtener(tenantId),
-      pool.query(`SELECT ps.*, p.codigo, p.nombre, p.marca, p.modelo, p.subtipo_id,
-        st.tipo_id, st.nombre AS subtipo_nombre
-        FROM public.producto_sucursal ps JOIN public.producto p ON p.id = ps.producto_id
-        LEFT JOIN public.subtipo st ON st.id = p.subtipo_id
-        WHERE ps.sucursal_id = $1 AND p.tenant_id = $2 AND p.activo = TRUE
-          AND ps.habilitado = TRUE AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
-        ORDER BY p.nombre, ps.id`, [sucursalId, tenantId]),
+    if (!clientes[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
+    const [categorias, descuentos, regiones] = await Promise.all([
       pool.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.cliente_descuento_categoria WHERE cliente_id = $1', [clienteId]),
       pool.query('SELECT producto_id, porcentaje FROM public.cliente_descuento_producto WHERE cliente_id = $1', [clienteId]),
       pool.query(`SELECT r.nombre, r.descuento FROM public.cliente_region cr
@@ -33,6 +31,38 @@ export class ListaPreciosService {
     }
     const especiales = new Map(descuentos.rows.map((row) => [row.producto_id, row.porcentaje]));
     const region = regiones.rows[0];
+    const lista = await this.calcular(tenantId, sucursalId, (row) => ({
+      descuentoRegionCliente: numero(region?.descuento),
+      descuentoCategoriaCliente: numero((row.subtipo_id ? subtipos.get(row.subtipo_id) : undefined) ?? (row.tipo_id ? tipos.get(row.tipo_id) : undefined)),
+      descuentoProductoCliente: numero(especiales.get(row.producto_id)),
+      descuentoCliente: numero(clientes[0].descuento_porcentaje),
+    }));
+    return { ...lista, cliente: { ...clientes[0], regionNombre: region?.nombre ?? null, regionDescuento: region?.descuento ?? null } };
+  }
+
+  /** Lista general de una sucursal: solo los niveles que valen para todos los clientes. */
+  async obtenerGeneral(tenantId: string, sucursalId: string) {
+    return this.calcular(tenantId, sucursalId, () => ({}));
+  }
+
+  private async calcular(tenantId: string, sucursalId: string, nivelesCliente: (row: FilaProducto) => NivelesCliente) {
+    const { rows: sucursales } = await pool.query('SELECT id, nombre, descuento FROM public.sucursal WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [sucursalId, tenantId]);
+    if (!sucursales[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
+    const [contexto, productos, excepciones] = await Promise.all([
+      new CotizacionRepository().obtener(tenantId),
+      pool.query(`SELECT ps.*, p.codigo, p.nombre, p.marca, p.modelo, p.subtipo_id, p.descuento_base,
+        st.tipo_id, st.nombre AS subtipo_nombre,
+        st.descuento_general AS subtipo_descuento_general, t.descuento_general AS tipo_descuento_general
+        FROM public.producto_sucursal ps JOIN public.producto p ON p.id = ps.producto_id
+        LEFT JOIN public.subtipo st ON st.id = p.subtipo_id
+        LEFT JOIN public.tipo t ON t.id = st.tipo_id
+        WHERE ps.sucursal_id = $1 AND p.tenant_id = $2 AND p.activo = TRUE
+          AND ps.habilitado = TRUE AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+        ORDER BY p.nombre, ps.id`, [sucursalId, tenantId]),
+      pool.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.descuento_categoria_sucursal WHERE sucursal_id = $1', [sucursalId]),
+    ]);
+    const excepcionesSucursal = (campo: 'tipo_id' | 'subtipo_id', id: string | null) =>
+      excepciones.rows.filter((e) => id && e[campo] === id).map((e) => ({ sucursalId, porcentaje: Number(e.porcentaje) }));
     const items = productos.rows.map((row) => {
       const moneda = row.moneda_precio_venta === 'USD' ? 'USD' : 'ARS';
       const principal = moneda === 'USD' ? row.precio_venta_usd : row.precio_venta_ars;
@@ -47,16 +77,24 @@ export class ListaPreciosService {
         ? monedaCosto === 'USD' ? (row.costo_reposicion_usd == null ? null : new Dinero(row.costo_reposicion_usd))
           : costoArs == null ? null : new Dinero(costoArs).div(contexto.cotizacion_usd_ars!)
         : costoArs == null ? null : new Dinero(costoArs);
-      const categoria = subtipos.get(row.subtipo_id) ?? tipos.get(row.tipo_id);
-      const especial = especiales.get(row.producto_id);
-      // Perfil LISTA_CLIENTE: conserva niveles y origen de la lista anterior.
-      // No incorpora descuentos generales de sucursal/categoría ni herencia nueva.
+      // Niveles generales (todos los clientes), con la misma resolución que ventas:
+      // categoría = excepción/general de subcategoría, si no de categoría;
+      // producto = descuento de la sucursal, si no el general del producto.
+      const categoriaGeneral = row.tipo_id || row.subtipo_id
+        ? resolverDescuento(
+            sucursalId,
+            { descuentoGeneral: numero(row.tipo_descuento_general), excepciones: excepcionesSucursal('tipo_id', row.tipo_id) },
+            row.subtipo_id
+              ? { descuentoGeneral: numero(row.subtipo_descuento_general), excepciones: excepcionesSucursal('subtipo_id', row.subtipo_id) }
+              : undefined
+          ).porcentaje
+        : null;
+      const productoGeneral = resolverDescuentoProducto(row.descuento, row.descuento_base).porcentaje;
       const cascada = calcularCascada({ precioBase: principal ?? '0', decimalesMonetarios: moneda === 'USD' ? 4 : 2,
-        descuentoProducto: row.descuento == null ? null : Number(row.descuento),
-        descuentoRegionCliente: region?.descuento == null ? null : Number(region.descuento),
-        descuentoCategoriaCliente: categoria == null ? null : Number(categoria),
-        descuentoProductoCliente: especial == null ? null : Number(especial),
-        descuentoCliente: clientes[0].descuento_porcentaje == null ? null : Number(clientes[0].descuento_porcentaje),
+        descuentoSucursal: numero(sucursales[0].descuento),
+        descuentoCategoria: categoriaGeneral,
+        descuentoProducto: productoGeneral,
+        ...nivelesCliente(row),
         costoReposicion: costoNativo?.toString() ?? null, margenMinimo: row.margen_minimo == null ? null : Number(row.margen_minimo) });
       const final = resolverPrecio(moneda, principal == null ? null : cascada.precioFinalDecimal!, contexto);
       const sinTope = new Dinero(cascada.precioSinTopeDecimal!);
@@ -73,6 +111,9 @@ export class ListaPreciosService {
         monedaReferencia: moneda, importeReferencia: precio.importe_referencia, importeFinalReferencia: final.importe_referencia, estadoPrecio: precio.estado,
         precioListaArs: precio.ars, precioFinalArs: final.ars, precioFinalUsd: final.usd,
         descuentoTotalPorcentaje: cascada.descuentoEfectivo, iva: row.iva,
+        // Aunque un descuento del cliente los reemplace, se informan para simular sin él.
+        descuentoCategoriaGeneral: categoriaGeneral,
+        descuentoProductoGeneral: productoGeneral,
         descuentosDetalle: cascada.aportes.map((aporte) => `${aporte.nivel}: -${aporte.porcentaje}%`),
         descuentosAportes: cascada.aportes.map((aporte) => ({ nivel: aporte.nivel, porcentaje: aporte.porcentaje })),
         precioSinTope: principal == null ? null : aArs(sinTope),
@@ -82,7 +123,6 @@ export class ListaPreciosService {
         motivoMargen: noAlcanza ? 'Los descuentos configurados no alcanzan el margen mínimo de la sucursal.' : undefined,
       };
     });
-    return { items, contexto_monetario: contexto, sucursal: sucursales[0],
-      cliente: { ...clientes[0], regionNombre: region?.nombre ?? null, regionDescuento: region?.descuento ?? null } };
+    return { items, contexto_monetario: contexto, sucursal: { id: sucursales[0].id, nombre: sucursales[0].nombre } };
   }
 }

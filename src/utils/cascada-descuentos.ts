@@ -14,7 +14,7 @@ import { Dinero } from './moneda';
  *      4a. Región del cliente (asignada para esa sucursal)
  *      4b. Categoría / Subcategoría del cliente
  *      4c. Producto especial del cliente
- *      4d. Descuento habitual general del cliente (se suma al efectivo acumulado)
+ *      4d. Descuento habitual general del cliente (encadenado, sobre el saldo)
  *
  * El margen mínimo de rentabilidad (costo × (1 + margen/100)) actúa como piso
  * protector: si la cascada o un precio manual deja el precio por debajo del piso,
@@ -335,29 +335,24 @@ export function calcularCascada(entrada: EntradaCascada): ResultadoCascada {
   if (manual) {
     precio = new Dinero(entrada.precioManual!).toDecimalPlaces(decimales);
   } else {
+    // Un descuento del cliente reemplaza al general del mismo nivel: el de
+    // categoría/subcategoría del cliente al de categoría, el de producto al de producto.
+    const categoriaGeneral = entrada.descuentoCategoriaCliente != null ? 0 : entrada.descuentoCategoria;
+    const productoGeneral = entrada.descuentoProductoCliente != null ? 0 : entrada.descuentoProducto;
     const niveles: [NivelDescuento, number][] = [
       ['sucursal', normalizarPorcentaje(entrada.descuentoSucursal)],
-      ['categoria', normalizarPorcentaje(entrada.descuentoCategoria)],
-      ['producto', normalizarPorcentaje(entrada.descuentoProducto)],
+      ['categoria', normalizarPorcentaje(categoriaGeneral)],
+      ['producto', normalizarPorcentaje(productoGeneral)],
       ['region-cliente', normalizarPorcentaje(entrada.descuentoRegionCliente)],
       ['categoria-cliente', normalizarPorcentaje(entrada.descuentoCategoriaCliente)],
       ['producto-cliente', normalizarPorcentaje(entrada.descuentoProductoCliente)],
+      ['cliente', normalizarPorcentaje(entrada.descuentoCliente)],
     ];
     for (const [nivel, porcentaje] of niveles) {
       if (!porcentaje) continue;
       const anterior = precio;
       precio = precio.mul(new Dinero(1).minus(new Dinero(porcentaje).div(100)));
       aportes.push({ nivel, porcentaje,
-        montoDescontado: anterior.minus(precio).toDecimalPlaces(decimales).toNumber(),
-        precioResultante: precio.toDecimalPlaces(decimales).toNumber() });
-    }
-    const habitual = normalizarPorcentaje(entrada.descuentoCliente);
-    if (habitual > 0) {
-      const anterior = precio;
-      const efectivo = new Dinero(1).minus(precio.div(base)).mul(100);
-      const total = Dinero.min(efectivo.plus(habitual), 100);
-      precio = base.mul(new Dinero(1).minus(total.div(100)));
-      aportes.push({ nivel: 'cliente', porcentaje: habitual,
         montoDescontado: anterior.minus(precio).toDecimalPlaces(decimales).toNumber(),
         precioResultante: precio.toDecimalPlaces(decimales).toNumber() });
     }

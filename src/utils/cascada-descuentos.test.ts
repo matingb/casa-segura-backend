@@ -109,16 +109,28 @@ describe('calcularCascada', () => {
     expect(r.precioFinal).toBe(9000);
   });
 
-  it('el descuento del cliente se SUMA al efectivo acumulado', () => {
+  it('el descuento del cliente se encadena sobre el saldo, como el resto', () => {
     const r = calcularCascada({
       precioBase: 10000,
       descuentoSucursal: 10,
       descuentoCategoria: 10,
       descuentoCliente: 5,
     });
-    // cascada: 19% efectivo; + 5 del cliente = 24% => 7600
-    expect(r.descuentoEfectivo).toBe(24);
-    expect(r.precioFinal).toBe(7600);
+    // 10000 → 9000 → 8100 → 5% sobre 8100 = 7695 (23,05% efectivo, no 24%)
+    expect(r.descuentoEfectivo).toBe(23.05);
+    expect(r.precioFinal).toBe(7695);
+  });
+
+  it('el descuento del cliente en el producto reemplaza al general del producto', () => {
+    const r = calcularCascada({ precioBase: 10000, descuentoSucursal: 10, descuentoProducto: 20, descuentoProductoCliente: 5 });
+    // 10000 → 9000 (sucursal) → 5% del cliente = 8550; el 20% general no se aplica
+    expect(r.precioFinal).toBe(8550);
+    expect(r.aportes.map((a) => a.nivel)).toEqual(['sucursal', 'producto-cliente']);
+  });
+
+  it('sin descuento del cliente en el producto, vale el general', () => {
+    const r = calcularCascada({ precioBase: 10000, descuentoProducto: 20, descuentoProductoCliente: null });
+    expect(r.precioFinal).toBe(8000);
   });
 
   it('el descuento del cliente solo, se aplica tal cual', () => {
@@ -194,14 +206,14 @@ describe('calcularCascada', () => {
       expect(r.precioFinal).toBe(0);
     });
 
-    it('el efectivo total no supera el 100% al sumar el del cliente', () => {
+    it('encadenado, el del cliente se aplica sobre el saldo y no lleva el precio a cero', () => {
       const r = calcularCascada({
         precioBase: 10000,
         descuentoSucursal: 80,
         descuentoCliente: 50,
       });
-      expect(r.descuentoEfectivo).toBe(100);
-      expect(r.precioFinal).toBe(0);
+      expect(r.descuentoEfectivo).toBe(90);
+      expect(r.precioFinal).toBe(1000);
     });
   });
 
@@ -215,9 +227,9 @@ describe('calcularCascada', () => {
       costoReposicion: 4000,
       margenMinimo: 20,
     });
-    // 10000 → 9000 → 8100 → 7695 (23.05% efectivo) + 5 del cliente = 28.05%
-    expect(r.precioFinal).toBe(7195);
-    expect(r.descuentoEfectivo).toBe(28.05);
+    // 10000 → 9000 → 8100 → 7695 → 5% del cliente sobre 7695 = 7310.25
+    expect(r.precioFinal).toBe(7310.25);
+    expect(r.descuentoEfectivo).toBe(26.9);
     expect(r.aportes.map((a) => a.nivel)).toEqual([
       'sucursal',
       'categoria',
@@ -341,12 +353,11 @@ describe('calcularCascada', () => {
         descuentoCategoriaCliente: 5,
         descuentoProductoCliente: 5,
       });
-      // 10000 * (0.95)^6 = 10000 * 0.73509189 = 7350.92
-      expect(r.precioFinal).toBe(7350.92);
+      // Los del cliente en categoría y producto reemplazan a los generales:
+      // 10000 * (0.95)^4 = 8145.06
+      expect(r.precioFinal).toBe(8145.06);
       expect(r.aportes.map((a) => a.nivel)).toEqual([
         'sucursal',
-        'categoria',
-        'producto',
         'region-cliente',
         'categoria-cliente',
         'producto-cliente',

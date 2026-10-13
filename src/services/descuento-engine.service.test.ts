@@ -57,7 +57,7 @@ describe('DescuentoEngineService', () => {
               nombre: 'Cámara IP',
               precio_base: 20000,
               costo_reposicion: 10000,
-              margen_minimo: 20, // piso = 12000
+              margen_minimo: 40, // piso = 14000
               descuento_producto_sucursal: null,
               descuento_producto_base: 5,
               tipo_id: 'tipo-1',
@@ -86,26 +86,27 @@ describe('DescuentoEngineService', () => {
     const item = resultado.items[0];
     expect(item.nombre).toBe('Cámara IP');
     expect(item.precioBase).toBe(20000);
-    // Cascada:
+    // Cascada (la categoría y el producto del cliente reemplazan a los generales):
     // Base: 20000
     // Sucursal: 10% -> 18000
-    // Categoria: 10% -> 16200
-    // Producto: 5% -> 15390
-    // Region cliente: 8% -> 14158.8
-    // Cat cliente: 12% -> 12459.74
-    // Prod cliente: 5% -> 11836.76
-    // Pero piso margen (costo 10000 * 1.2 = 12000)
-    // El precio quedó por debajo de 12000, por lo tanto topeAplicado = true y precioFinal = 12000!
-    expect(item.precioFinal).toBe(12000);
+    // Region cliente: 8% -> 16560
+    // Cat cliente: 12% -> 14572.8
+    // Prod cliente: 5% -> 13844.16
+    // Habitual: 5% -> 13151.95
+    // Pero piso margen (costo 10000 * 1.4 = 14000)
+    // El precio quedó por debajo de 14000, por lo tanto topeAplicado = true y precioFinal = 14000!
+    expect(item.resultadoCascada.precioSinTope).toBe(13151.95);
+    expect(item.resultadoCascada.aportes.map((a) => a.nivel)).toEqual(['sucursal', 'region-cliente', 'categoria-cliente', 'producto-cliente', 'cliente']);
+    expect(item.precioFinal).toBe(14000);
     expect(item.analisisMargen.topeAplicado).toBe(true);
     expect(item.analisisMargen.estado).toBe('tope_aplicado');
-    expect(item.analisisMargen.gananciaUnitaria).toBe(2000);
-    expect(item.analisisMargen.margenEfectivo).toBe(20);
+    expect(item.analisisMargen.gananciaUnitaria).toBe(4000);
+    expect(item.analisisMargen.margenEfectivo).toBe(40);
     expect(item.alertas.some((a) => a.tipo === 'tope_aplicado')).toBe(true);
 
     expect(resultado.resumen.subtotalBase).toBe(40000);
-    expect(resultado.resumen.totalFinal).toBe(24000);
-    expect(resultado.resumen.gananciaTotalEstimada).toBe(4000);
+    expect(resultado.resumen.totalFinal).toBe(28000);
+    expect(resultado.resumen.gananciaTotalEstimada).toBe(8000);
     expect(resultado.resumen.hayTopeAplicado).toBe(true);
   });
 });
