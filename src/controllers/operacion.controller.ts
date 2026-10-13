@@ -4,7 +4,7 @@ import { OperacionFiltros } from '../repositories/operacion.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, ConflictError, CatalogoError } from '../utils/errors';
 import { TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 
 const service = new OperacionService();
@@ -19,6 +19,7 @@ export interface OperacionesQuery {
   sortDir?: string;
   filtro_sucursal?: string;
   filtro_usuario?: string;
+  filtro_estado?: 'activas' | 'canceladas' | 'todas';
 }
 
 export interface ValoresUnicosQuery {
@@ -31,8 +32,15 @@ export interface OperacionCrearBody {
   tipo?: string;
   sucursal_id?: string;
   fecha?: string;
+  registrar_finanzas_ahora?: boolean;
+  impactar_stock_ahora?: boolean;
   modo_reparto?: 'porcentaje' | 'monto';
-  items?: Array<{ producto_sucursal_id?: string; cantidad?: number; [key: string]: unknown }>;
+  items?: Array<{
+    producto_sucursal_id?: string;
+    cantidad?: number;
+    cantidad_impactada_stock?: number;
+    [key: string]: unknown;
+  }>;
   cuentas?: Array<{
     cuenta_financiera_id?: string;
     porcentaje_venta?: number;
@@ -45,11 +53,33 @@ export interface OperacionCrearBody {
   movimiento?: { tipo?: string; monto_ars?: number; [key: string]: unknown };
 }
 
+export interface RegistrarPagoBody {
+  fecha_efectiva?: string;
+  observacion?: string | null;
+  cuentas?: Array<{
+    cuenta_financiera_id?: string;
+    monto_ars?: number;
+    monto_usd?: number;
+    fecha_efectiva?: string;
+    observacion?: string | null;
+  }>;
+}
+
+export interface RegistrarImpactoStockBody {
+  items?: Array<{
+    operacion_detalle_id?: string;
+    cantidad?: number;
+  }>;
+}
+
 export class OperacionController {
   getAll = async (req: TypedRequestQuery<OperacionesQuery>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const { limit, offset, sucursalId, tipoId, page, sortBy, sortDir, filtro_sucursal, filtro_usuario } = req.query;
+      const { limit, offset, sucursalId, tipoId, page, sortBy, sortDir, filtro_sucursal, filtro_usuario, filtro_estado } = req.query;
+      const estado = filtro_estado === 'activas' || filtro_estado === 'canceladas' || filtro_estado === 'todas'
+        ? filtro_estado
+        : undefined;
 
       if (page !== undefined) {
         const normalizedLimit = normalizePaginationLimit(limit);
@@ -59,9 +89,9 @@ export class OperacionController {
           sucursal: filtro_sucursal,
           usuario: filtro_usuario,
         };
-        const result = await service.getPaginatedWithTotal(
-          tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, filtros, sortBy, sortDir
-        );
+        const result = estado
+          ? await service.getPaginatedWithTotal(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, filtros, sortBy, sortDir, estado)
+          : await service.getPaginatedWithTotal(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, filtros, sortBy, sortDir);
         res.status(200).json({
           status: 'success',
           data: result.items,
@@ -76,17 +106,194 @@ export class OperacionController {
       }
 
       if (limit === undefined) {
-        const data = await service.getAll(tenantId, sucursalId, tipoId);
+        const data = estado
+          ? await service.getAll(tenantId, sucursalId, tipoId, estado)
+          : await service.getAll(tenantId, sucursalId, tipoId);
         res.status(200).json({ status: 'success', data });
         return;
       }
       const normalizedLimit = normalizePaginationLimit(limit);
       const parsedOffset = Math.max(0, Number(offset) || 0);
-      const result = await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId);
+      const result = estado
+        ? await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId, estado)
+        : await service.getPaginated(tenantId, normalizedLimit, parsedOffset, sucursalId, tipoId);
       res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in OperacionController.getAll:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  cancelar = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const authId = req.user!.id;
+      const tenantId = await getTenantIdByAuthId(authId);
+      const data = await service.cancelar(tenantId, authId, req.params.id);
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.cancelar:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  registrarImpactoStock = async (
+    req: TypedRequestBody<RegistrarImpactoStockBody, { id: string }>,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const items = req.body.items;
+      if (!items || items.length === 0) {
+        res.status(400).json(errorResponse('Indicá al menos una línea con cantidad a impactar.'));
+        return;
+      }
+      const ids = new Set<string>();
+      for (const item of items) {
+        if (!item.operacion_detalle_id || !Number.isInteger(item.cantidad) || !(item.cantidad! > 0)) {
+          res.status(400).json(errorResponse('Cada línea requiere un identificador y una cantidad entera mayor a cero.'));
+          return;
+        }
+        if (ids.has(item.operacion_detalle_id)) {
+          res.status(400).json(errorResponse('Una línea solo puede impactarse una vez por solicitud.'));
+          return;
+        }
+        ids.add(item.operacion_detalle_id);
+      }
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const data = await service.registrarImpactoStock(tenantId, req.params.id, {
+        items: items.map((item) => ({
+          operacion_detalle_id: item.operacion_detalle_id!,
+          cantidad: item.cantidad!,
+        })),
+      });
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.registrarImpactoStock:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  registrarPago = async (
+    req: TypedRequestBody<RegistrarPagoBody, { id: string }>,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const body = req.body;
+      if (!body.cuentas || body.cuentas.length === 0) {
+        res.status(400).json(errorResponse('Indicá al menos una cuenta financiera para registrar el pago/cobro.'));
+        return;
+      }
+      if (body.fecha_efectiva && Number.isNaN(Date.parse(body.fecha_efectiva))) {
+        res.status(400).json(errorResponse('La fecha efectiva no es válida.'));
+        return;
+      }
+      for (const cuenta of body.cuentas) {
+        if (cuenta.fecha_efectiva && Number.isNaN(Date.parse(cuenta.fecha_efectiva))) {
+          res.status(400).json(errorResponse('La fecha efectiva no es válida.'));
+          return;
+        }
+        if (!cuenta.cuenta_financiera_id || !(Number(cuenta.monto_ars) > 0)) {
+          res.status(400).json(errorResponse('Cada pago/cobro requiere una cuenta financiera y un monto mayor a cero.'));
+          return;
+        }
+      }
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const data = await service.registrarPago(tenantId, req.params.id, {
+        fecha_efectiva: body.fecha_efectiva,
+        observacion: body.observacion,
+        cuentas: body.cuentas.map((cuenta) => ({
+          cuenta_financiera_id: cuenta.cuenta_financiera_id!,
+          monto_ars: Number(cuenta.monto_ars),
+          monto_usd: cuenta.monto_usd,
+          ...(cuenta.fecha_efectiva ? { fecha_efectiva: cuenta.fecha_efectiva } : {}),
+          ...(cuenta.observacion !== undefined ? { observacion: cuenta.observacion } : {}),
+        })),
+      });
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.registrarPago:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  eliminarPago = async (
+    req: TypedRequestParams<{ id: string; pagoId: string }>,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const data = await service.eliminarPago(tenantId, req.params.id, req.params.pagoId);
+      if (!data) {
+        res.status(404).json(errorResponse('Operación no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      if (error instanceof ConflictError) {
+        res.status(409).json(errorResponse(error.message));
+        return;
+      }
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
+      if (error instanceof BusinessError) {
+        const status = error.message === 'Operación no encontrada' || error.message === 'Pago/cobro no encontrado' ? 404 : 400;
+        res.status(status).json(errorResponse(error.message));
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in OperacionController.eliminarPago:', error);
       res.status(500).json(errorResponse(message));
     }
   };
@@ -183,6 +390,35 @@ export class OperacionController {
         }
       }
 
+      const esCompraOVenta = body.tipo === 'compra' || body.tipo === 'venta';
+      if (esCompraOVenta) {
+        for (const item of body.items ?? []) {
+          const cantidadImpactada = item.cantidad_impactada_stock;
+          if (
+            cantidadImpactada !== undefined
+            && (!Number.isInteger(cantidadImpactada) || cantidadImpactada < 0 || cantidadImpactada > Number(item.cantidad))
+          ) {
+            res.status(400).json(errorResponse('La cantidad inicial a impactar debe ser un entero entre cero y la cantidad del producto.'));
+            return;
+          }
+        }
+      }
+      if (body.impactar_stock_ahora !== undefined && typeof body.impactar_stock_ahora !== 'boolean') {
+        res.status(400).json(errorResponse('El campo "impactar_stock_ahora" debe ser booleano.'));
+        return;
+      }
+      const registrarFinanzasAhora = !esCompraOVenta
+        || body.registrar_finanzas_ahora === true
+        || (body.registrar_finanzas_ahora === undefined && (body.cuentas?.length ?? 0) > 0);
+      if (esCompraOVenta && !registrarFinanzasAhora && (body.cuentas?.length ?? 0) > 0) {
+        res.status(400).json(errorResponse('Una operación pendiente no puede incluir cuentas financieras.'));
+        return;
+      }
+      if (esCompraOVenta && registrarFinanzasAhora && (!body.cuentas || body.cuentas.length === 0)) {
+        res.status(400).json(errorResponse('Elegí al menos una cuenta financiera para registrar el pago/cobro ahora.'));
+        return;
+      }
+
       // Reparto entre cuentas financieras.
       if (body.modo_reparto !== undefined && body.modo_reparto !== 'porcentaje' && body.modo_reparto !== 'monto') {
         res.status(400).json(errorResponse('El campo "modo_reparto" debe ser "porcentaje" o "monto"'));
@@ -213,6 +449,10 @@ export class OperacionController {
       const data = await service.crear(tenantId, authId, { ...body, modo_reparto: modoReparto } as any);
       res.status(201).json({ status: 'success', data });
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;

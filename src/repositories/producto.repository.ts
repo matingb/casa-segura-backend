@@ -1,4 +1,8 @@
 import { pool } from '../config/db';
+import { PoolClient } from 'pg';
+import { PrecioInput, Moneda } from '../utils/moneda';
+import { withTransaction } from '../utils/db-transaction';
+import { BusinessError } from '../utils/errors';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 
@@ -9,6 +13,7 @@ export interface ProductoFiltros {
   modelo?: string;
   subtipo?: string;
   estado?: string;
+  operativo?: boolean;
 }
 
 const SORTABLE_COLUMNS: Record<string, string> = {
@@ -17,7 +22,9 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   marca: 'p.marca',
   modelo: 'p.modelo',
   subtipo: 'sub.nombre',
-  precioBase: 'p.precio_base',
+  precioBase: 'p.precio_base_ars_resuelto',
+  precioBaseArs: 'p.precio_base_ars_resuelto',
+  precioBaseUsd: 'p.precio_base_usd_resuelto',
   estado: 'p.activo',
 };
 
@@ -45,16 +52,26 @@ export interface ProductoData {
   imagen_url?: string | null;
   descripcion?: string | null;
   activo?: boolean;
-  precio_base?: number | null;
-  costo_reposicion_base?: number | null;
+  precio?: PrecioInput | null;
+  precio_base?: number | string | null;
+  precio_base_usd?: string | null;
+  moneda_precio_base?: Moneda;
+  costo?: PrecioInput | null;
+  costo_reposicion_base?: number | string | null;
+  costo_reposicion_base_usd?: string | null;
+  moneda_costo_reposicion_base?: Moneda;
+  /** Descuento del producto para todas las sucursales (nivel 3 de la cascada). */
+  descuento_base?: number | null;
   codigo_qr?: string | null;
 }
 
 export class ProductoRepository {
 
-  async findAll(tenantId: string) {
+  async findAll(tenantId: string, operativo = false) {
     const { rows } = await pool.query(
-      'SELECT * FROM public.producto WHERE tenant_id = $1 ORDER BY nombre',
+      `SELECT * FROM public.producto_catalogo
+       WHERE tenant_id = $1 AND deleted_at IS NULL ${operativo ? 'AND activo = TRUE' : ''}
+       ORDER BY nombre`,
       [tenantId]
     );
     return rows;
@@ -70,9 +87,9 @@ export class ProductoRepository {
       searchClause = `AND (p.nombre ILIKE $${idx} OR p.codigo ILIKE $${idx} OR p.marca ILIKE $${idx} OR p.modelo ILIKE $${idx} OR sub.nombre ILIKE $${idx})`;
     }
     const { rows } = await pool.query(
-      `SELECT p.* FROM public.producto p
+      `SELECT p.* FROM public.producto_catalogo p
        LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
-       WHERE p.tenant_id = $1 ${searchClause}
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL ${searchClause}
        ORDER BY p.nombre
        LIMIT $2 OFFSET $3`,
       params
@@ -124,18 +141,19 @@ export class ProductoRepository {
     }
     const filtersSql = filterClauses.length ? `AND ${filterClauses.join(' AND ')}` : '';
 
-    const orderBy = buildMultiOrderByClause(parseSortParam(sortBy, sortDir), SORTABLE_COLUMNS, 'p.nombre ASC');
+    const orderBy = buildMultiOrderByClause(parseSortParam(sortBy, sortDir), SORTABLE_COLUMNS, 'p.nombre ASC')
+      .split(', ').map((orden) => `${orden} NULLS LAST`).join(', ') + ', p.id ASC';
 
     const countQuery = `
       SELECT COUNT(*) FROM public.producto p
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
-      WHERE p.tenant_id = $1 ${searchClause} ${filtersSql}
+      WHERE p.tenant_id = $1 AND p.deleted_at IS NULL ${searchClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
-      SELECT p.* FROM public.producto p
+      SELECT p.* FROM public.producto_catalogo p
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
-      WHERE p.tenant_id = $1 ${searchClause} ${filtersSql}
+      WHERE p.tenant_id = $1 AND p.deleted_at IS NULL ${searchClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -164,7 +182,7 @@ export class ProductoRepository {
         `SELECT DISTINCT sub.nombre AS valor
          FROM public.producto p
          JOIN public.subtipo sub ON sub.id = p.subtipo_id
-         WHERE p.tenant_id = $1 AND sub.nombre IS NOT NULL
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND sub.nombre IS NOT NULL
          ORDER BY valor`,
         [tenantId]
       );
@@ -181,7 +199,7 @@ export class ProductoRepository {
     const { rows } = await pool.query(
       `SELECT DISTINCT ${columna} AS valor
        FROM public.producto p
-       WHERE p.tenant_id = $1 AND ${columna} IS NOT NULL AND ${columna} <> ''
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ${columna} IS NOT NULL AND ${columna} <> ''
        ORDER BY valor`,
       [tenantId]
     );
@@ -190,20 +208,21 @@ export class ProductoRepository {
 
   async findById(id: string, tenantId: string) {
     const { rows } = await pool.query(
-      'SELECT * FROM public.producto WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+      'SELECT * FROM public.producto_catalogo WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1',
       [id, tenantId]
     );
     return rows[0] ?? null;
   }
 
-  async create(data: ProductoData) {
-    const { rows } = await pool.query(
+  async create(data: ProductoData, client?: PoolClient) {
+    const { rows } = await (client ?? pool).query(
       `INSERT INTO public.producto
         (tenant_id, subtipo_id, codigo, codigo_barra_proveedor, nombre, marca, modelo,
          color, presentacion, alto, unidad_alto, ancho, unidad_ancho, profundidad, unidad_profundidad,
          peso_unitario, unidad_peso_unitario, imagen_url, descripcion, activo,
-         precio_base, costo_reposicion_base, codigo_qr)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         precio_base, costo_reposicion_base, descuento_base, codigo_qr, moneda_precio_base, precio_base_usd,
+         moneda_costo_reposicion_base, costo_reposicion_base_usd)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        RETURNING *`,
       [
         data.tenant_id,
@@ -228,20 +247,27 @@ export class ProductoRepository {
         data.activo ?? true,
         data.precio_base ?? null,
         data.costo_reposicion_base ?? null,
+        data.descuento_base ?? null,
         data.codigo_qr ?? null,
+        data.moneda_precio_base ?? 'ARS',
+        data.precio_base_usd ?? null,
+        data.moneda_costo_reposicion_base ?? 'ARS',
+        data.costo_reposicion_base_usd ?? null,
       ]
     );
     return rows[0];
   }
 
-  async update(id: string, data: Partial<ProductoData>, tenantId: string) {
+  async update(id: string, data: Partial<ProductoData>, tenantId: string, client?: PoolClient) {
     const fields = [
       'subtipo_id', 'codigo', 'codigo_barra_proveedor', 'nombre', 'marca',
       'modelo', 'color', 'presentacion',
       'alto', 'unidad_alto', 'ancho', 'unidad_ancho', 'profundidad', 'unidad_profundidad',
       'peso_unitario', 'unidad_peso_unitario',
       'imagen_url', 'descripcion', 'activo',
-      'precio_base', 'costo_reposicion_base', 'codigo_qr',
+      'precio_base', 'costo_reposicion_base', 'descuento_base', 'codigo_qr',
+      'moneda_precio_base', 'precio_base_usd',
+      'moneda_costo_reposicion_base', 'costo_reposicion_base_usd',
     ];
 
     const updates: string[] = [];
@@ -260,10 +286,10 @@ export class ProductoRepository {
     updates.push(`updated_at = NOW()`);
     values.push(id, tenantId);
 
-    const { rows } = await pool.query(
+    const { rows } = await (client ?? pool).query(
       `UPDATE public.producto
        SET ${updates.join(', ')}
-       WHERE id = $${idx++} AND tenant_id = $${idx}
+       WHERE id = $${idx++} AND tenant_id = $${idx} AND deleted_at IS NULL
        RETURNING *`,
       values
     );
@@ -278,10 +304,49 @@ export class ProductoRepository {
     const { rows } = await pool.query(
       `UPDATE public.producto
        SET imagen_url = $1, updated_at = NOW()
-       WHERE id = $2 AND tenant_id = $3
+       WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL
        RETURNING *`,
       [publicUrl, id, tenantId]
     );
     return rows[0] ?? null;
+  }
+
+  async softDelete(id: string, tenantId: string) {
+    return withTransaction(async (client) => {
+      const { rows: productoRows } = await client.query(
+        `SELECT id FROM public.producto
+         WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [id, tenantId]
+      );
+      if (!productoRows[0]) return null;
+
+      const { rows: stockRows } = await client.query(
+        `SELECT id, cantidad_disponible, cantidad_reservada
+         FROM public.producto_sucursal
+         WHERE producto_id = $1 AND deleted_at IS NULL
+         FOR UPDATE`,
+        [id]
+      );
+      const conStock = stockRows.find((row) => Number(row.cantidad_disponible) !== 0 || Number(row.cantidad_reservada) !== 0);
+      if (conStock) {
+        throw new BusinessError('No se puede eliminar el producto porque tiene stock disponible o reservado.');
+      }
+
+      await client.query(
+        `UPDATE public.producto_sucursal
+         SET deleted_at = NOW()
+         WHERE producto_id = $1 AND deleted_at IS NULL`,
+        [id]
+      );
+      const { rows } = await client.query(
+        `UPDATE public.producto
+         SET deleted_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND tenant_id = $2
+         RETURNING *`,
+        [id, tenantId]
+      );
+      return rows[0];
+    });
   }
 }

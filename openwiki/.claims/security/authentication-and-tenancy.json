@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:6d71911a9eec0bac02d7b9d0b553c8dc4d5dcc41ceb5b0992adae0a39faccc44",
+  "claims": [
+    {
+      "id": "claim_23b333ba38934e58adddf7108efa07c9",
+      "statement": "Login signs in through Supabase, sets the access token in the configured cookie for the session lifetime, and returns only the user's id and email; logout clears the cookie even if remote sign-out fails.",
+      "evidence": [
+        {
+          "resource": "repo://src/controllers/auth.controller.ts#L1-L58",
+          "version": "repo-lines-v1:sha256:2327e60fb835c8091a57c953890d44fa88d2db3941623d8236676397024c103b:eyJzZWxlY3RlZExpbmVDb3VudCI6NTgsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImMyMjg0MDdlMzFlYjBmN2JjYWI5ZjA4MDZiNTRiYWY3ZDg2ZDE2M2IwZmI5ZmUzMTI0ZWJlYWVlODA1MGI0MzkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU1ZTVlNzcxZTY2MWIwM2Y0MWIzOGMyZWYwNGRiYjRkYTNjNDY1MmJjYzFlZDQ4ZGFlYjkxMjc4MmUxMmQyMTciLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoyLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhhZTkyMjExZmRlMTM3YjkxMmRhMTliZmY3OWNlODdkMTMyMjliNGI1NWE0NGNiN2M5NTAzMGZkZDk4YWI5ODgifQ"
+        },
+        {
+          "resource": "repo://src/services/auth.service.ts#L1-L31",
+          "version": "repo-lines-v1:sha256:19ef135264507ed0b0d825d197a169c1ef74051ecfdc1838c02ca19eb2f479f2:eyJzZWxlY3RlZExpbmVDb3VudCI6MzEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgzOTIzMWVmMTQ5NWE0ZmQ2MDBlZjk3NWE5NWVhMzE4NjQyNzc3N2YxMDM4MDYzZWJjNTc4NjBiOTBkODY0MDAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_96607dc014694a27b867dc66022af2ea",
+      "statement": "The auth middleware gives precedence to the configured cookie token, otherwise reads a bearer token, assigns the Supabase user to `req.user`, and returns 401 for authentication failures.",
+      "evidence": [
+        {
+          "resource": "repo://src/middlewares/auth.middleware.ts#L1-L37",
+          "version": "repo-lines-v1:sha256:548a0368234e1498ed26047392c7a925dfb5160eba908aa6ba301c6a217676c0:eyJzZWxlY3RlZExpbmVDb3VudCI6MzcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImU3YjhmMjhlZDU4YmQxZDJhNjM5NWU2ZGFlYTFkMTVhZTcxMmM3YzIyZmUyMjliNDFhZThlZThmMTRkYjFhZWUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmZTExYTcxMmI4YzczYzA5N2U4YTFmMGFjYmE5YzQyMjYxNWMzYjllZTc3ZjdhNzBiMTZhZGYxMTk3MTNlMGQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_b7c0c6044cec4dcdb0cb79a291dec2a7",
+      "statement": "The tenant helper looks up `public.usuario.tenant_id` by the authenticated Supabase `auth_id` and throws if no application user is found.",
+      "evidence": [
+        {
+          "resource": "repo://src/utils/tenant.ts#L1-L16",
+          "version": "repo-lines-v1:sha256:10b11620fbf35303c31fbd78aaf4af100bff1c1966119c8757af6a4034bc9cd2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTYsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE5YTU3MGRlYTM3ODc2MWYzMGZkYWZlZTkwM2E5YTY3OTBjNTk3Yjk3Yjg0ZDFiMTg5MWJlOWY2Yzk0YmRhNDEiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjVkMTcwYzZlMmM3NDk1NzM0OWQ3Y2FlYzZhYjhjY2MwNTUyMDljODdlMzUzYTFkMWU3M2U5YWQ5ZmY3NzM5MDMifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_1dfbf4ccc13c4eb19a67efdc56375ad1",
+      "statement": "The migration enables RLS, derives `current_tenant_id()` from `auth.uid()` through `public.usuario`, and uses direct and parent-relationship tenant policies.",
+      "evidence": [
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L287-L320",
+          "version": "repo-lines-v1:sha256:f3f09c10b925e08d331768eeed90471e62334ce66aefc6bcba0879b04309ea27:eyJzZWxlY3RlZExpbmVDb3VudCI6MzQsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjAwNTM1YzgxZDRlNzc0NDI3MTBlN2NhOGJlZTU4NDk1YzA0YWE3YTczY2NlZmUwMjQ5NmE1MTZjMzljMGQyN2MiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZiODQ0MjQxNmYwMTZjNzU4NWFjYzRmMTExNjllNGMyZTkwMzlhYzllMjcwMDM1OTc4MzY0MmIzZDM0YmNiOWMiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6IjcyMDg2OTVhYTFjZTU3ZGQ3NTNmZWQwMDI0MDQ4YjU1MjdiYjUyZDA0ZjI3OTZkNTdiN2NlYmFkM2RmZWU2ZjQiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjozLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImU3ODU0MTI4MjY0MWYxNGZiNjI5MzFjZDJjNjU2M2ZiMDUxY2NhOTRlM2ViMWFkOTI5YTdhOWZkYjQwMWM4ODQifQ"
+        },
+        {
+          "resource": "repo://supabase/migrations/20260726000000_init_schema.sql#L350-L438",
+          "version": "repo-lines-v1:sha256:9065fb19b1061bedbaf6671b9cca7d410035d1428e1900a94724baacc272d11c:eyJzZWxlY3RlZExpbmVDb3VudCI6ODksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdiZTM5ZDUxODk2MmNiOGMwNGM0MjE3MTkyYWQ1MmVkODMyNzk2MmE0ZTYzYWE0NTAxMDZhNjdkMjIwMWE4MzAiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE1YWM5OGYyMzg2YTJiMzlkMWVlYjc2NWIxZjRlNWE4NWJjZTFhY2FhZDNkMWY1OTQ1MGI0OTgzOGExMDQzM2UiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUwZTczMzEwNDI5NmEwZDg3Y2E5NDIxNmQwZjlkZmQ1MTc1MWNhZGU5ZmRhOGIyNjY3MmRlOWE1ZTFiMzk0MmMiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjoxLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6IjhhM2EyMDUxNDc4ZjQwYTkwMDM4MmY0ZjU2MzM5NTlhMjgzZmQzMzJmMWQ1ZGEyYjBjZGY3MjZmZjYwMDk2ODYifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_0878a58495354cc99ffea447e69cbefb",
+      "statement": "The service-role Supabase client disables auto-refresh and persisted sessions; the auth service uses its administrative API to sign out tokens.",
+      "evidence": [
+        {
+          "resource": "repo://src/config/supabase-admin.ts#L1-L17",
+          "version": "repo-lines-v1:sha256:3ccc266f26cdb48f5dae146f48c4b0c8ec17046d5d86b397da4fe30f425f27b8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM3ZWMwZmVmYWMwMTg5NDM0N2EzMmNhYjYyNjc2MmU3YzU5NjdjZTQ4MmExOWUwZDhiMWEwNmZjY2EyNTViMjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://src/services/auth.service.ts#L20-L31",
+          "version": "repo-lines-v1:sha256:e77bdd2a5b46ec59ec5d5090328a56daead73145c74a418763306c8886fde2c8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdlYjcwMjU3NTkzZGEwNmY2ODJhM2RkZGE1NGE5ZDI2MGQ0ZmM1MTRmNjQ1MjM3ZjVjYTc0YjA4ZjhkYTYxYTYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImUyMmZhYTUzNWJkMmVhM2Q1MmU3NDFlZDQ1NDQzNWI3ZmU0OWU4MzU4NmU5NDNkOThkODJiYmZiMjRkMWY1YzUiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjozLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImI4NDRjZjU0YzhkYzRjMTBhN2I1YWRhZWQ2Y2M2ZjhmOTM4MzI0ZmQxMWZlYzMwODA5MmQ3Y2NmNTIxYTJkMjYiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_230bda491b3347939e6d556dd3d4b577",
+      "statement": "The authentication cookie is HTTP-only and switches `secure` and `sameSite` settings based on production mode.",
+      "evidence": [
+        {
+          "resource": "repo://src/config/cookie.ts#L1-L10",
+          "version": "repo-lines-v1:sha256:47073971bc70ad1cdcf00ba1fb93b6c9f0a40e5893a3feb9336dcd01583714a1:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjZlYjYyZjZhOWFmYTg3YzM2ZTNmNTgyNTk4OGU2MjU1ZjYwYTYyN2Y4NzM5MWM2MmRmZWU5YTk2ZDA0ZjRmNWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjJmZTExYTcxMmI4YzczYzA5N2U4YTFmMGFjYmE5YzQyMjYxNWMzYjllZTc3ZjdhNzBiMTZhZGYxMTk3MTNlMGQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.0",
+    "at": "2026-09-05T03:32:47.137Z"
+  }
+}

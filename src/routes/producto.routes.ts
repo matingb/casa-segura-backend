@@ -26,5 +26,6 @@ router.get('/:id',              authMiddleware, productoController.getProducto);
 router.post('/',    authMiddleware, productoController.createProducto);
 router.patch('/:id', authMiddleware, productoController.updateProducto);
 router.patch('/:id/imagen', authMiddleware, upload.single('imagen'), productoController.uploadImage);
+router.delete('/:id', authMiddleware, productoController.deleteProducto);
 
 export default router;

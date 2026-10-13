@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "/openwiki/architecture/backend-architecture.md": {
+      "pageVersion": "sha256:70abef10b50d0326922b663ef7146813ab9b1e9fe83b1912852bc6feb539a6db",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    },
+    "/openwiki/data/domain-model.md": {
+      "pageVersion": "sha256:09cf9fb13401855c28bc75edbd42772ea4783b52dee7d0732cb12a8ca830ba3d",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    },
+    "/openwiki/operations/database-and-configuration.md": {
+      "pageVersion": "sha256:2a973eb01d298cae63c9ea9204701141eb21ee2ee0f1e0500f62ff0690df0489",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    },
+    "/openwiki/quickstart.md": {
+      "pageVersion": "sha256:716c53b323a77c0f91c13616c8735d059ce2ae13df5bc2f48517340901afd82b",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    },
+    "/openwiki/security/authentication-and-tenancy.md": {
+      "pageVersion": "sha256:6d71911a9eec0bac02d7b9d0b553c8dc4d5dcc41ceb5b0992adae0a39faccc44",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    },
+    "/openwiki/testing/testing-strategy.md": {
+      "pageVersion": "sha256:596f40b3862900862491dbe3fd1fb203cf8a27f8159fd048a6d62022424802ac",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    },
+    "/openwiki/workflows/operations-and-inventory.md": {
+      "pageVersion": "sha256:63b6481ec7aabbe34445d226a268727ff99b858f736770ad9ea6fb22faed5853",
+      "completedBy": "codex",
+      "completedRunId": "3b81b442-248a-47a9-a92c-8cbf4f124f13",
+      "gitHead": "95cfba5abd7fa490ff085b63d2e06f4f0780632b",
+      "sourceFingerprint": "sha256:6f2c2943b586f52dc52b363bf9b0bc5495bcaa78dd8082d9ddfa612b2acfa659"
+    }
+  }
+}

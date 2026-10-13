@@ -151,3 +151,34 @@ describe('resolverReparto', () => {
     expect(r.total).toBe(500);
   });
 });
+
+describe('base del reparto en compras', () => {
+  /**
+   * Regresión: la base debe ser el subtotal SIN recargos. Usar el total (que ya
+   * los incluye) hacía que las bases nunca llegaran a cubrirlo y el registro
+   * fallaba con "Los montos de las cuentas no cubren el total de la operación".
+   */
+  it('cierra cuando se reparte sobre el subtotal sin recargos', () => {
+    const extra = new Map([['credito', 10], ['debito', 0]]);
+    const cuentas = [
+      { cuenta_financiera_id: 'credito', monto_ars: 292777.65 },
+      { cuenta_financiera_id: 'debito', monto_ars: 204088.5 },
+    ];
+
+    const r = resolverReparto('monto', 470250, cuentas, extra);
+
+    expect(r.subtotalBase).toBe(470250);
+    expect(r.totalRecargos).toBe(26616.15);
+    expect(r.total).toBe(496866.15);
+  });
+
+  it('falla si se reparte sobre el total con recargos', () => {
+    const extra = new Map([['credito', 10], ['debito', 0]]);
+    const cuentas = [
+      { cuenta_financiera_id: 'credito', monto_ars: 292777.65 },
+      { cuenta_financiera_id: 'debito', monto_ars: 204088.5 },
+    ];
+
+    expect(() => resolverReparto('monto', 496866.15, cuentas, extra)).toThrow(/no cubren/);
+  });
+});

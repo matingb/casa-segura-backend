@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:716c53b323a77c0f91c13616c8735d059ce2ae13df5bc2f48517340901afd82b",
+  "claims": [
+    {
+      "id": "claim_ba455514414543aa9a7cb1495814d443",
+      "statement": "The package scripts install/run the backend via `tsx watch --env-file .env src/index.ts`, build with TypeScript, start `dist/index.js`, and execute Vitest tests.",
+      "evidence": [
+        {
+          "resource": "repo://package.json#L6-L12",
+          "version": "repo-lines-v1:sha256:f9ed0c2379450f2bd582ace0e96a85c6bdc926d3f6c8b11bb248b810b6c324f3:eyJzZWxlY3RlZExpbmVDb3VudCI6NywiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYTg0MDY5ODRiZGVmY2EzNGRkNmJjOTAwMjdmMWQxMWFiY2IxNzAzNGM1MjVjOWE1Y2VmYTFkODRmY2NkODFkMSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYjBjOTQ5ODU1MjZjMWM1N2VmMDBjMDBkM2Y0ZGM5MDYxNTY3N2EwYTM2YThiNzk1ZGZmOWFmZmQ1MGZlOWY1OCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjMsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiOTUxZWU4M2Q4MTljMDFlYzUxMTI4OGVlM2Q3MGIxMjQyMTUzNWZmNjcyYzNjYjk0ZTA1ODNiMGY4N2E3NGJlNyIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjMsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiYzJkMzE2Mjg2MWE3OWRhOThjOWFhNDYwNDYwZGVlNGNjOTI5MGJkMzM1OWMxNDU3MDkwNDI3NDhmNWI0NzZkZiJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_404320a299604f01940b287aa937b8d9",
+      "statement": "The database pool requires `DB_URL`, while the regular Supabase client requires `SUPABASE_URL`/`SUPABASE_KEY` and the administrative client requires `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`.",
+      "evidence": [
+        {
+          "resource": "repo://src/config/db.ts#L1-L9",
+          "version": "repo-lines-v1:sha256:3f423959091e875f43af137109e1da25ee3fea7047016beeac325f1ac2d552b1:eyJzZWxlY3RlZExpbmVDb3VudCI6OSwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiOTkyOGNhOTE2YjE5ZjVlZGJlMDc2OTA3M2I1MTA5ODI4OTE0NzA4MmQxMTQzZWNmZmMzOWI2NDk2M2ZiZDYyOSIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYWQwNDdmNmM5NjllNDc0ZGYwYWMwM2NhNmUwMDgxNzEzMzI1ZTU4MTI3OWEzOGViODQwMTZjZTEyYTQyNzg4ZiIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        },
+        {
+          "resource": "repo://src/config/supabase-admin.ts#L1-L17",
+          "version": "repo-lines-v1:sha256:3ccc266f26cdb48f5dae146f48c4b0c8ec17046d5d86b397da4fe30f425f27b8:eyJzZWxlY3RlZExpbmVDb3VudCI6MTcsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM3ZWMwZmVmYWMwMTg5NDM0N2EzMmNhYjYyNjc2MmU3YzU5NjdjZTQ4MmExOWUwZDhiMWEwNmZjY2EyNTViMjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://src/config/supabase.ts#L1-L10",
+          "version": "repo-lines-v1:sha256:61f545dbc7edac9814d374ad6e56d29c14415b19b0c7a84c59e45428a3a18117:eyJzZWxlY3RlZExpbmVDb3VudCI6MTAsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjM3ZWMwZmVmYWMwMTg5NDM0N2EzMmNhYjYyNjc2MmU3YzU5NjdjZTQ4MmExOWUwZDhiMWEwNmZjY2EyNTViMjUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6IjgyNjViYmY1OTI1YzA1ODNjMjZjOTY2MzE2MmE5MDhjMDEwMDRiZTYxMWM3OThkYTcyYWRhMGQ4NTEyYzVhOTAiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_be3e88412c574816a4a79deabd315f00",
+      "statement": "The Express server defaults to port 8080 and mounts authentication plus protected resource routers under `/api`.",
+      "evidence": [
+        {
+          "resource": "repo://src/index.ts#L1-L51",
+          "version": "repo-lines-v1:sha256:e66719bb21c8afa6f7249b52f4aa7dc0ce65991be5d70bddaab1ac92b86b4902:eyJzZWxlY3RlZExpbmVDb3VudCI6NTEsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImE3MmE2NjdhZWU5Zjg1NjFhZDljNmI2YzY5MTRiYzE4MDMxNDNjODQwYWE3MjljNTcxZjA3MjU2ODlkNjE2MWIiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_070e51275465489e866848f7f536a1d4",
+      "statement": "The auth router exposes public login/logout endpoints and protects `/me` with authentication middleware.",
+      "evidence": [
+        {
+          "resource": "repo://src/routes/auth.routes.ts#L1-L12",
+          "version": "repo-lines-v1:sha256:38d6a6a16331aefa32ef18723b10bdeaf87c26c0e21c826e0147322fbfc70719:eyJzZWxlY3RlZExpbmVDb3VudCI6MTIsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6ImY3NTc0ZTMyZjNlNDBlN2U2ZDhhYWIzMTIzNDA0MWZjOWMyYzUzMDY3MjIxNDRhZTM0NmU1NjU5ODI1ZDkwMGUiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImQ3MTA2MDhjOTNkNDBhNTdlYTk0MDhkYmQwOGQzMGIzYmMzMjNiNmUyYjQ0ZWU3MGFmZGIzOGU3Y2U3NjQ3ZTEiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_071bd2b8c6444b6ca96c2ad8d4f1b6e5",
+      "statement": "Vitest uses placeholder Supabase and database environment values for the focused test suite.",
+      "evidence": [
+        {
+          "resource": "repo://vitest.config.ts#L1-L15",
+          "version": "repo-lines-v1:sha256:3d72fb1e7bccd2998aaf9e70fb2f1c352cb50cf75977af8f0a3ef033657363b2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdhOTVjY2RhYWUzODU2MzkyZWFhZTU3MjBlMmNiMTkwZWQyN2JjNzY2MWY1MWZiNDY4Yzg2ZGVlZTQ0YTdkODYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.0",
+    "at": "2026-09-05T03:32:47.137Z"
+  }
+}

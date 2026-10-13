@@ -2,14 +2,18 @@ import { PoolClient } from 'pg';
 import { pool } from '../config/db';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { withTransaction } from '../utils/db-transaction';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, ConflictError, CatalogoError } from '../utils/errors';
+import { CotizacionRepository } from './cotizacion.repository';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 import { ModoReparto, CuentaRepartoResuelta, ResultadoReparto, resolverReparto } from '../utils/reparto-cuentas';
+import { calcularPrecioMinimo } from '../utils/cascada-descuentos';
+import { costoArsVigente } from '../utils/moneda';
 
 export interface OperacionFiltros {
   tipo?: string;
   sucursal?: string;
   usuario?: string;
+  estado?: 'activas' | 'canceladas' | 'todas';
 }
 
 const SORTABLE_COLUMNS: Record<string, string> = {
@@ -23,6 +27,7 @@ const SORTABLE_COLUMNS: Record<string, string> = {
 export interface OperacionItemInput {
   producto_sucursal_id: string;
   cantidad: number;
+  cantidad_impactada_stock?: number;
   precio_unit_ars?: number | null;
   precio_unit_usd?: number | null;
   costo_unit_ars?: number | null;
@@ -43,7 +48,12 @@ export interface OperacionCuentaInput {
 export interface OperacionCrearData {
   tipo: 'Compra' | 'Venta' | 'Traslado' | 'Movimiento';
   sucursal_id: string;
+  cotizacion_version_catalogo?: string;
   fecha?: string;
+  /** Solo aplica a compras y ventas. Si se omite, se infiere de las cuentas recibidas. */
+  registrar_finanzas_ahora?: boolean;
+  /** Solo aplica a compras y ventas. Por compatibilidad, se impacta al crear si se omite. */
+  impactar_stock_ahora?: boolean;
   /** Cómo se reparte el total entre las cuentas. Default: 'monto'. */
   modo_reparto?: ModoReparto;
   items?: OperacionItemInput[];
@@ -80,8 +90,67 @@ export interface OperacionCrearData {
   };
 }
 
+export interface RegistrarPagoData {
+  cuentas: Array<OperacionCuentaInput & {
+    fecha_efectiva?: string;
+    observacion?: string | null;
+  }>;
+  fecha_efectiva?: string;
+  observacion?: string | null;
+}
+
+export interface RegistrarImpactoStockData {
+  items: Array<{
+    operacion_detalle_id: string;
+    cantidad: number;
+  }>;
+}
+
+export type EstadoFinanciero = 'PENDIENTE' | 'PARCIAL' | 'SALDADA' | 'SOBREPAGADA';
+export type EstadoStock = 'PENDIENTE' | 'PARCIAL' | 'COMPLETO';
+
+const TOLERANCIA_FINANCIERA = 0.01;
+
+function redondearMonto(valor: number): number {
+  return Math.round(valor * 100) / 100;
+}
+
+export function calcularEstadoFinanciero(total: number, acumulado: number): EstadoFinanciero {
+  if (acumulado <= TOLERANCIA_FINANCIERA) return 'PENDIENTE';
+  if (acumulado < total - TOLERANCIA_FINANCIERA) return 'PARCIAL';
+  if (acumulado <= total + TOLERANCIA_FINANCIERA) return 'SALDADA';
+  return 'SOBREPAGADA';
+}
+
+export function calcularEstadoStock(
+  items: Array<{ cantidad: unknown; cantidad_impactada_stock: unknown }>
+): EstadoStock | null {
+  if (items.length === 0) return null;
+  if (items.every((item) => Number(item.cantidad_impactada_stock) === 0)) return 'PENDIENTE';
+  if (items.every((item) => Number(item.cantidad_impactada_stock) === Number(item.cantidad))) return 'COMPLETO';
+  return 'PARCIAL';
+}
+
+const ESTADO_STOCK_SQL = `
+  CASE
+    WHEN to2.nombre NOT IN ('Compra', 'Venta') THEN NULL
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM public.operacion_detalle od_stock
+      WHERE od_stock.operacion_id = o.id
+        AND od_stock.cantidad_impactada_stock > 0
+    ) THEN 'PENDIENTE'
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM public.operacion_detalle od_stock
+      WHERE od_stock.operacion_id = o.id
+        AND od_stock.cantidad_impactada_stock < od_stock.cantidad
+    ) THEN 'COMPLETO'
+    ELSE 'PARCIAL'
+  END AS estado_stock`;
+
 export class OperacionRepository {
-  async findAll(tenantId: string, sucursalId?: string, tipoId?: string) {
+  async findAll(tenantId: string, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
     const params: unknown[] = [tenantId];
     let sucursalClause = '';
     if (sucursalId) {
@@ -93,13 +162,15 @@ export class OperacionRepository {
       params.push(tipoId);
       tipoClause = `AND o.tipo_id = $${params.length}`;
     }
+    const estadoClause = this.buildEstadoClause(estado);
     const query = `
       SELECT o.*,
              to2.nombre     AS tipo_nombre,
              u.nombre       AS usuario_nombre,
              s.nombre       AS sucursal_nombre,
              us.sucursal_id AS sucursal_id,
-             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto
+             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto,
+             ${ESTADO_STOCK_SQL}
       FROM public.operacion o
       JOIN public.tipo_operacion   to2 ON to2.id = o.tipo_id
       JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
@@ -108,14 +179,14 @@ export class OperacionRepository {
       LEFT JOIN public.venta      v ON v.operacion_id = o.id
       LEFT JOIN public.compra     c ON c.operacion_id = o.id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-      WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause}
+      WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause}
       ORDER BY o.fecha DESC
     `;
     const { rows } = await pool.query(query, params);
     return rows;
   }
 
-  async findPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string) {
+  async findPaginated(tenantId: string, limit: number, offset: number, sucursalId?: string, tipoId?: string, estado: OperacionFiltros['estado'] = 'activas') {
     const sentinel = getLimitSentinel(limit);
     const params: unknown[] = [tenantId, sentinel, offset];
     let sucursalClause = '';
@@ -128,13 +199,15 @@ export class OperacionRepository {
       params.push(tipoId);
       tipoClause = `AND o.tipo_id = $${params.length}`;
     }
+    const estadoClause = this.buildEstadoClause(estado);
     const { rows } = await pool.query(
       `SELECT o.*,
               to2.nombre     AS tipo_nombre,
               u.nombre       AS usuario_nombre,
               s.nombre       AS sucursal_nombre,
               us.sucursal_id AS sucursal_id,
-              COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto
+              COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto,
+              ${ESTADO_STOCK_SQL}
        FROM public.operacion o
        JOIN public.tipo_operacion   to2 ON to2.id = o.tipo_id
        JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
@@ -143,7 +216,7 @@ export class OperacionRepository {
        LEFT JOIN public.venta      v ON v.operacion_id = o.id
        LEFT JOIN public.compra     c ON c.operacion_id = o.id
        LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-       WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause}
+       WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause}
        ORDER BY o.fecha DESC
        LIMIT $2 OFFSET $3`,
       params
@@ -159,7 +232,8 @@ export class OperacionRepository {
     tipoId?: string,
     filtros?: OperacionFiltros,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    estado: OperacionFiltros['estado'] = 'activas'
   ) {
     const params: unknown[] = [tenantId];
     let sucursalClause = '';
@@ -172,6 +246,7 @@ export class OperacionRepository {
       params.push(tipoId);
       tipoClause = `AND o.tipo_id = $${params.length}`;
     }
+    const estadoClause = this.buildEstadoClause(estado);
 
     const filterClauses: string[] = [];
     if (filtros?.tipo) {
@@ -199,7 +274,7 @@ export class OperacionRepository {
       LEFT JOIN public.venta      v ON v.operacion_id = o.id
       LEFT JOIN public.compra     c ON c.operacion_id = o.id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-      WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause} ${filtersSql}
+      WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
@@ -208,7 +283,8 @@ export class OperacionRepository {
              u.nombre       AS usuario_nombre,
              s.nombre       AS sucursal_nombre,
              us.sucursal_id AS sucursal_id,
-             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto
+             COALESCE(v.total_ars, c.total_ars, m.monto_ars, 0) AS monto,
+             ${ESTADO_STOCK_SQL}
       FROM public.operacion o
       JOIN public.tipo_operacion   to2 ON to2.id = o.tipo_id
       JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
@@ -217,7 +293,7 @@ export class OperacionRepository {
       LEFT JOIN public.venta      v ON v.operacion_id = o.id
       LEFT JOIN public.compra     c ON c.operacion_id = o.id
       LEFT JOIN public.movimiento m ON m.operacion_id = o.id
-      WHERE o.tenant_id = $1 ${sucursalClause} ${tipoClause} ${filtersSql}
+      WHERE o.tenant_id = $1 ${estadoClause} ${sucursalClause} ${tipoClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -325,10 +401,12 @@ export class OperacionRepository {
     const itemsQuery = `
       SELECT 
         od.id,
-        od.operacion_id,
-        od.producto_sucursal_id,
-        od.cantidad,
-        od.alicuota_iva,
+         od.operacion_id,
+         od.producto_sucursal_id,
+         od.cantidad,
+         od.cantidad_impactada_stock,
+         od.ultima_modificacion_stock_at,
+         od.alicuota_iva,
         od.iva_ars,
         od.precio_unit_ars,
         od.costo_unit_ars,
@@ -354,11 +432,13 @@ export class OperacionRepository {
         oc.porcentaje_extra,
         oc.monto_ars,
         oc.monto_usd,
+        oc.fecha_efectiva,
+        oc.observacion,
         cf.nombre AS cuenta_nombre
       FROM public.operacion_cuenta oc
       JOIN public.cuenta_financiera cf ON cf.id = oc.cuenta_financiera_id
       WHERE oc.operacion_id = $1
-      ORDER BY cf.nombre
+      ORDER BY oc.fecha_efectiva ASC, cf.nombre ASC
     `;
 
     const [{ rows: items }, { rows: cuentas }] = await Promise.all([
@@ -368,48 +448,79 @@ export class OperacionRepository {
 
     return {
       ...op,
+      estado_stock: op.tipo_nombre === 'Compra' || op.tipo_nombre === 'Venta'
+        ? calcularEstadoStock(items)
+        : null,
       items,
       cuentas,
+      monto_pagado_ars: redondearMonto(
+        cuentas.reduce((sum, cuenta) => sum + Number(cuenta.monto_ars ?? 0), 0)
+      ),
     };
   }
 
   async crear(tenantId: string, authId: string, data: OperacionCrearData) {
     const operacionId = await withTransaction(async (client) => {
+      if (data.cotizacion_version_catalogo !== undefined) {
+        const contexto = await new CotizacionRepository().obtener(tenantId, client);
+        if (data.cotizacion_version_catalogo !== contexto.cotizacion_version) {
+          throw new CatalogoError('Cambió la cotización del catálogo. Revisá los precios antes de confirmar la operación.', 'COTIZACION_CAMBIO', 409);
+        }
+      }
       const usuarioSucursalId = await this.resolverUsuarioSucursal(client, tenantId, authId, data.sucursal_id);
       const tipoId = await this.resolverTipoId(client, data.tipo);
+      const esOperacionComercial = data.tipo === 'Compra' || data.tipo === 'Venta';
+      const registrarFinanzasAhora = !esOperacionComercial
+        || data.registrar_finanzas_ahora === true
+        || (data.registrar_finanzas_ahora === undefined && (data.cuentas?.length ?? 0) > 0);
 
       // El reparto entre cuentas se resuelve antes de insertar nada: define los
       // montos reales de cada cuenta y el total de la operación (con recargos).
-      const reparto = await this.resolverRepartoCuentas(client, tenantId, data);
+      const reparto = registrarFinanzasAhora
+        ? await this.resolverRepartoCuentas(client, tenantId, data)
+        : null;
+      const estadoFinanciero: EstadoFinanciero | null = esOperacionComercial
+        ? (registrarFinanzasAhora ? 'SALDADA' : 'PENDIENTE')
+        : null;
 
       const { rows: opRows } = await client.query(
-        `INSERT INTO public.operacion (tenant_id, usuario_sucursal_id, tipo_id, fecha)
-         VALUES ($1, $2, $3, COALESCE($4, NOW()))
+        `INSERT INTO public.operacion (tenant_id, usuario_sucursal_id, tipo_id, fecha, estado_financiero)
+         VALUES ($1, $2, $3, COALESCE($4, NOW()), $5)
          RETURNING id`,
-        [tenantId, usuarioSucursalId, tipoId, data.fecha ?? null]
+        [tenantId, usuarioSucursalId, tipoId, data.fecha ?? null, estadoFinanciero]
       );
       const id = opRows[0].id as string;
 
-      if (data.items && data.items.length > 0) {
-        await this.insertDetalle(client, id, data.items);
+      const itemsConImpactoInicial = (data.items ?? []).map((item) => ({
+        ...item,
+        cantidad_impactada_stock: esOperacionComercial
+          ? item.cantidad_impactada_stock ?? (data.impactar_stock_ahora === false ? 0 : item.cantidad)
+          : 0,
+      }));
+      const itemsAImpactarAhora = itemsConImpactoInicial
+        .filter((item) => Number(item.cantidad_impactada_stock) > 0)
+        .map((item) => ({ ...item, cantidad: Number(item.cantidad_impactada_stock) }));
+
+      if (itemsConImpactoInicial.length > 0) {
+        await this.insertDetalle(client, id, itemsConImpactoInicial, esOperacionComercial);
       }
 
       await this.insertExtension(client, id, data, reparto);
 
       if (reparto && reparto.cuentas.length > 0) {
-        await this.insertCuentas(client, id, reparto.cuentas);
+        await this.insertCuentas(client, id, reparto.cuentas, data.fecha, null);
       }
 
       const cuentasResueltas = reparto?.cuentas ?? [];
 
       switch (data.tipo) {
         case 'Compra':
-          await this.ajustarStockCompra(client, data.items ?? []);
+          await this.ajustarStockCompra(client, itemsAImpactarAhora);
           await this.ajustarSaldos(client, cuentasResueltas, 'debito');
           break;
         case 'Venta':
-          await this.validarMargenMinimo(client, data.items ?? []);
-          await this.ajustarStockVenta(client, data.items ?? []);
+          await this.validarMargenMinimo(client, data.items ?? [], tenantId, data.cotizacion_version_catalogo);
+          await this.ajustarStockVenta(client, itemsAImpactarAhora);
           await this.ajustarSaldos(client, cuentasResueltas, 'credito');
           break;
         case 'Traslado':
@@ -429,6 +540,395 @@ export class OperacionRepository {
     });
 
     return this.findById(tenantId, operacionId);
+  }
+
+  async cancelar(tenantId: string, authId: string, id: string) {
+    await withTransaction(async (client) => {
+      const { rows: opRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, to2.nombre AS tipo_nombre, us.sucursal_id
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         JOIN public.usuario_sucursal us ON us.id = o.usuario_sucursal_id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE`,
+        [id, tenantId]
+      );
+      const operacion = opRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) throw new ConflictError('La operación ya fue cancelada.');
+
+      const canceladorId = await this.resolverUsuarioSucursal(
+        client, tenantId, authId, operacion.sucursal_id as string
+      );
+      const { rows: detalleRows } = await client.query(
+        `SELECT od.producto_sucursal_id, od.cantidad, od.cantidad_impactada_stock, ps.producto_id
+         FROM public.operacion_detalle od
+         JOIN public.producto_sucursal ps ON ps.id = od.producto_sucursal_id
+         WHERE od.operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const { rows: cuentaRows } = await client.query(
+        `SELECT cuenta_financiera_id, monto_ars
+         FROM public.operacion_cuenta
+         WHERE operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const cuentas = cuentaRows.map((row) => ({
+        cuenta_financiera_id: row.cuenta_financiera_id as string,
+        monto_ars: Number(row.monto_ars),
+      }));
+      const detallesStock = detalleRows
+        .map((detalle) => ({
+          ...detalle,
+          cantidad: operacion.tipo_nombre === 'Compra' || operacion.tipo_nombre === 'Venta'
+            ? detalle.cantidad_impactada_stock
+            : detalle.cantidad,
+        }))
+        .filter((detalle) => Number(detalle.cantidad) > 0);
+
+      switch (operacion.tipo_nombre) {
+        case 'Compra':
+          await this.revertirCompra(client, detallesStock);
+          await this.ajustarSaldos(client, cuentas, 'credito');
+          break;
+        case 'Venta':
+          await this.revertirVenta(client, detallesStock);
+          await this.ajustarSaldos(client, cuentas, 'debito');
+          break;
+        case 'Traslado': {
+          const { rows: trasladoRows } = await client.query(
+            'SELECT sucursal_destino_id FROM public.traslado WHERE operacion_id = $1',
+            [id]
+          );
+          if (!trasladoRows[0]) throw new BusinessError('No se encontró el destino del traslado.');
+          await this.revertirTraslado(client, detalleRows, trasladoRows[0].sucursal_destino_id as string);
+          // Si hay cuentas persistidas, hubo un importe financiero que revertir.
+          await this.ajustarSaldos(client, cuentas, 'credito');
+          break;
+        }
+        case 'Movimiento': {
+          const { rows: movimientoRows } = await client.query(
+            'SELECT tipo FROM public.movimiento WHERE operacion_id = $1',
+            [id]
+          );
+          if (!movimientoRows[0]) throw new BusinessError('No se encontró el detalle del movimiento.');
+          await this.ajustarSaldos(client, cuentas, movimientoRows[0].tipo === 'ingreso' ? 'debito' : 'credito');
+          break;
+        }
+        default:
+          throw new BusinessError(`La cancelación aún no está definida para ${operacion.tipo_nombre}.`);
+      }
+
+      await client.query(
+        `UPDATE public.operacion
+         SET cancelled_at = NOW(), cancelled_by_usuario_sucursal_id = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [id, canceladorId]
+      );
+    });
+    return this.findById(tenantId, id);
+  }
+
+  async registrarImpactoStock(tenantId: string, id: string, data: RegistrarImpactoStockData) {
+    await withTransaction(async (client) => {
+      const idsDetalle = data.items.map((item) => item.operacion_detalle_id);
+      if (new Set(idsDetalle).size !== idsDetalle.length) {
+        throw new BusinessError('No se puede impactar la misma línea más de una vez en una sola solicitud.');
+      }
+
+      const { rows: operacionRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, to2.nombre AS tipo_nombre
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE OF o`,
+        [id, tenantId]
+      );
+      const operacion = operacionRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) throw new ConflictError('No se puede impactar stock en una operación cancelada.');
+      if (operacion.tipo_nombre !== 'Compra' && operacion.tipo_nombre !== 'Venta') {
+        throw new BusinessError('Solo las compras y ventas admiten impactos parciales de stock.');
+      }
+
+      const { rows: detalles } = await client.query(
+        `SELECT od.id, od.producto_sucursal_id, od.cantidad, od.cantidad_impactada_stock,
+                p.nombre AS producto_nombre
+         FROM public.operacion_detalle od
+         JOIN public.producto_sucursal ps ON ps.id = od.producto_sucursal_id
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE od.operacion_id = $1 AND od.id = ANY($2::uuid[])
+         ORDER BY od.id
+         FOR UPDATE OF od`,
+        [id, idsDetalle]
+      );
+      if (detalles.length !== idsDetalle.length) {
+        throw new BusinessError('Alguna de las líneas indicadas no pertenece a la operación.');
+      }
+
+      const cantidadPorDetalle = new Map(data.items.map((item) => [item.operacion_detalle_id, item.cantidad]));
+      for (const detalle of detalles) {
+        const nuevaCantidad = cantidadPorDetalle.get(detalle.id as string)!;
+        const pendiente = Number(detalle.cantidad) - Number(detalle.cantidad_impactada_stock);
+        if (!Number.isInteger(nuevaCantidad) || nuevaCantidad <= 0 || nuevaCantidad > pendiente) {
+          throw new BusinessError(
+            `La cantidad a impactar de ${detalle.producto_nombre} debe ser un entero mayor a cero y no superar las ${pendiente} unidades pendientes.`
+          );
+        }
+      }
+
+      const cantidadesPorStock = new Map<string, number>();
+      for (const detalle of detalles) {
+        const stockId = detalle.producto_sucursal_id as string;
+        const cantidad = cantidadPorDetalle.get(detalle.id as string)!;
+        cantidadesPorStock.set(stockId, (cantidadesPorStock.get(stockId) ?? 0) + cantidad);
+      }
+      const idsStock = [...cantidadesPorStock.keys()].sort();
+      const { rows: stocks } = await client.query(
+        `SELECT ps.id, ps.cantidad_disponible, p.nombre AS producto_nombre
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.id = ANY($1::uuid[])
+         ORDER BY ps.id
+         FOR UPDATE`,
+        [idsStock]
+      );
+      if (stocks.length !== idsStock.length) {
+        throw new BusinessError('No se encontró el stock de alguna línea de la operación.');
+      }
+      if (operacion.tipo_nombre === 'Venta') {
+        for (const stock of stocks) {
+          const cantidad = cantidadesPorStock.get(stock.id as string)!;
+          if (Number(stock.cantidad_disponible) < cantidad) {
+            throw new BusinessError(
+              `Stock insuficiente para registrar la salida de ${stock.producto_nombre}: hay ${stock.cantidad_disponible} y se solicitan ${cantidad}.`
+            );
+          }
+        }
+      }
+
+      for (const detalle of detalles) {
+        const cantidad = cantidadPorDetalle.get(detalle.id as string)!;
+        const resultado = await client.query(
+          `UPDATE public.operacion_detalle
+           SET cantidad_impactada_stock = cantidad_impactada_stock + $1,
+               ultima_modificacion_stock_at = NOW()
+           WHERE id = $2
+             AND cantidad_impactada_stock + $1 <= cantidad`,
+          [cantidad, detalle.id]
+        );
+        if (resultado.rowCount !== 1) {
+          throw new ConflictError('La operación cambió mientras se registraba el impacto. Actualizá el detalle e intentá nuevamente.');
+        }
+      }
+
+      const signo = operacion.tipo_nombre === 'Compra' ? 1 : -1;
+      for (const stockId of idsStock) {
+        await client.query(
+          `UPDATE public.producto_sucursal
+           SET cantidad_disponible = cantidad_disponible + $1, updated_at = NOW()
+           WHERE id = $2`,
+          [signo * cantidadesPorStock.get(stockId)!, stockId]
+        );
+      }
+    });
+    return this.findById(tenantId, id);
+  }
+
+  async registrarPago(tenantId: string, id: string, data: RegistrarPagoData) {
+    await withTransaction(async (client) => {
+      const { rows: opRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, o.estado_financiero, to2.nombre AS tipo_nombre,
+                COALESCE(c.total_ars, v.total_ars) AS total_ars
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         LEFT JOIN public.compra c ON c.operacion_id = o.id
+         LEFT JOIN public.venta v ON v.operacion_id = o.id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE OF o`,
+        [id, tenantId]
+      );
+      const operacion = opRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) throw new ConflictError('No se puede registrar un pago/cobro en una operación cancelada.');
+      if (operacion.tipo_nombre !== 'Compra' && operacion.tipo_nombre !== 'Venta') {
+        throw new BusinessError('Solo las compras y ventas admiten pagos/cobros asociados.');
+      }
+      if (operacion.estado_financiero === 'SALDADA' || operacion.estado_financiero === 'SOBREPAGADA') {
+        throw new ConflictError('La operación ya está saldada y no admite otro pago/cobro.');
+      }
+
+      const total = Number(operacion.total_ars ?? 0);
+      if (!(total > 0)) throw new BusinessError('La operación no tiene un total válido para registrar el pago/cobro.');
+
+      const { rows: pagosPrevios } = await client.query(
+        `SELECT monto_ars
+         FROM public.operacion_cuenta
+         WHERE operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const acumuladoAnterior = redondearMonto(
+        pagosPrevios.reduce((sum, pago) => sum + Number(pago.monto_ars ?? 0), 0)
+      );
+      const pago = await this.resolverPagoParcial(client, tenantId, total, data.cuentas);
+      for (const [index, cuenta] of pago.cuentas.entries()) {
+        const detalle = data.cuentas[index];
+        await this.insertCuentas(
+          client,
+          id,
+          [cuenta],
+          detalle?.fecha_efectiva ?? data.fecha_efectiva,
+          detalle?.observacion ?? data.observacion
+        );
+      }
+      await this.ajustarSaldos(
+        client,
+        pago.cuentas,
+        operacion.tipo_nombre === 'Compra' ? 'debito' : 'credito'
+      );
+
+      const acumulado = redondearMonto(acumuladoAnterior + pago.total);
+      const estadoFinanciero = calcularEstadoFinanciero(total, acumulado);
+      await client.query(
+        `UPDATE public.operacion
+         SET estado_financiero = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [id, estadoFinanciero]
+      );
+    });
+    return this.findById(tenantId, id);
+  }
+
+  async eliminarPago(tenantId: string, id: string, pagoId: string) {
+    await withTransaction(async (client) => {
+      const { rows: opRows } = await client.query(
+        `SELECT o.id, o.cancelled_at, to2.nombre AS tipo_nombre,
+                COALESCE(c.total_ars, v.total_ars) AS total_ars
+         FROM public.operacion o
+         JOIN public.tipo_operacion to2 ON to2.id = o.tipo_id
+         LEFT JOIN public.compra c ON c.operacion_id = o.id
+         LEFT JOIN public.venta v ON v.operacion_id = o.id
+         WHERE o.id = $1 AND o.tenant_id = $2
+         FOR UPDATE OF o`,
+        [id, tenantId]
+      );
+      const operacion = opRows[0];
+      if (!operacion) throw new BusinessError('Operación no encontrada');
+      if (operacion.cancelled_at) {
+        throw new ConflictError('No se puede eliminar un pago/cobro de una operación cancelada.');
+      }
+      if (operacion.tipo_nombre !== 'Compra' && operacion.tipo_nombre !== 'Venta') {
+        throw new BusinessError('Solo las compras y ventas admiten pagos/cobros asociados.');
+      }
+
+      // Bloquear el historial completo junto con la operación evita que un alta o
+      // una baja concurrente calcule un estado financiero desactualizado.
+      const { rows: pagos } = await client.query(
+        `SELECT id, cuenta_financiera_id, monto_ars
+         FROM public.operacion_cuenta
+         WHERE operacion_id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const pago = pagos.find((item) => item.id === pagoId);
+      if (!pago) throw new BusinessError('Pago/cobro no encontrado');
+
+      const monto = Number(pago.monto_ars ?? 0);
+      if (!(monto > 0)) throw new BusinessError('El pago/cobro no tiene un monto válido para eliminar.');
+
+      await this.ajustarSaldos(
+        client,
+        [{ cuenta_financiera_id: pago.cuenta_financiera_id, monto_ars: monto }],
+        operacion.tipo_nombre === 'Compra' ? 'credito' : 'debito'
+      );
+      await client.query(
+        `DELETE FROM public.operacion_cuenta
+         WHERE id = $1 AND operacion_id = $2`,
+        [pagoId, id]
+      );
+
+      const acumuladoRestante = redondearMonto(
+        pagos
+          .filter((item) => item.id !== pagoId)
+          .reduce((sum, item) => sum + Number(item.monto_ars ?? 0), 0)
+      );
+      const estadoFinanciero = calcularEstadoFinanciero(Number(operacion.total_ars ?? 0), acumuladoRestante);
+      await client.query(
+        `UPDATE public.operacion
+         SET estado_financiero = $2, updated_at = NOW()
+         WHERE id = $1`,
+        [id, estadoFinanciero]
+      );
+    });
+    return this.findById(tenantId, id);
+  }
+
+  private buildEstadoClause(estado: OperacionFiltros['estado']): string {
+    if (estado === 'canceladas') return 'AND o.cancelled_at IS NOT NULL';
+    if (estado === 'todas') return '';
+    return 'AND o.cancelled_at IS NULL';
+  }
+
+  private async revertirCompra(client: PoolClient, items: Array<{ producto_sucursal_id: string; cantidad: unknown }>) {
+    for (const item of items) {
+      const cantidad = Number(item.cantidad);
+      const { rows } = await client.query(
+        `SELECT ps.cantidad_disponible, p.nombre
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.id = $1 FOR UPDATE`,
+        [item.producto_sucursal_id]
+      );
+      if (!rows[0] || Number(rows[0].cantidad_disponible) < cantidad) {
+        throw new BusinessError(`No se puede cancelar la compra: el stock de ${rows[0]?.nombre ?? item.producto_sucursal_id} ya fue utilizado.`);
+      }
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible - $1 WHERE id = $2',
+        [cantidad, item.producto_sucursal_id]
+      );
+    }
+  }
+
+  private async revertirVenta(client: PoolClient, items: Array<{ producto_sucursal_id: string; cantidad: unknown }>) {
+    for (const item of items) {
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible + $1 WHERE id = $2',
+        [Number(item.cantidad), item.producto_sucursal_id]
+      );
+    }
+  }
+
+  private async revertirTraslado(
+    client: PoolClient,
+    items: Array<{ producto_sucursal_id: string; cantidad: unknown; producto_id: string }>,
+    sucursalDestinoId: string
+  ) {
+    for (const item of items) {
+      const { rows: destinoRows } = await client.query(
+        `SELECT ps.id, ps.cantidad_disponible, p.nombre
+         FROM public.producto_sucursal ps
+         JOIN public.producto p ON p.id = ps.producto_id
+         WHERE ps.producto_id = $1 AND ps.sucursal_id = $2
+         FOR UPDATE`,
+        [item.producto_id, sucursalDestinoId]
+      );
+      const destino = destinoRows[0];
+      const cantidad = Number(item.cantidad);
+      if (!destino || Number(destino.cantidad_disponible) < cantidad) {
+        throw new BusinessError(`No se puede cancelar el traslado: el stock de ${destino?.nombre ?? item.producto_id} ya fue utilizado en destino.`);
+      }
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible - $1 WHERE id = $2',
+        [cantidad, destino.id]
+      );
+      await client.query(
+        'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible + $1 WHERE id = $2',
+        [cantidad, item.producto_sucursal_id]
+      );
+    }
   }
 
   /**
@@ -470,6 +970,48 @@ export class OperacionRepository {
     return resolverReparto(modo, base, cuentas, extraPorCuenta);
   }
 
+  private async resolverPagoParcial(
+    client: PoolClient,
+    tenantId: string,
+    totalOperacion: number,
+    cuentas: OperacionCuentaInput[]
+  ): Promise<{ cuentas: CuentaRepartoResuelta[]; total: number }> {
+    if (cuentas.length === 0) {
+      throw new BusinessError('Indicá al menos una cuenta financiera para registrar el pago/cobro.');
+    }
+    const ids = [...new Set(cuentas.map((cuenta) => cuenta.cuenta_financiera_id))];
+    const { rows } = await client.query(
+      `SELECT id, porcentaje_extra
+       FROM public.cuenta_financiera
+       WHERE id = ANY($1::uuid[]) AND tenant_id = $2`,
+      [ids, tenantId]
+    );
+    if (rows.length !== ids.length) {
+      throw new BusinessError('Alguna de las cuentas financieras indicadas no existe.');
+    }
+    const extraPorCuenta = new Map<string, number>(
+      rows.map((row) => [row.id as string, Number(row.porcentaje_extra ?? 0)])
+    );
+    const cuentasResueltas = cuentas.map((cuenta) => {
+      const monto = redondearMonto(Number(cuenta.monto_ars ?? 0));
+      if (!(monto > 0)) throw new BusinessError('Cada pago/cobro debe tener un monto mayor a cero.');
+      const porcentajeExtra = extraPorCuenta.get(cuenta.cuenta_financiera_id) ?? 0;
+      const base = redondearMonto(monto / (1 + porcentajeExtra / 100));
+      return {
+        cuenta_financiera_id: cuenta.cuenta_financiera_id,
+        porcentaje_venta: totalOperacion > 0 ? redondearMonto((base / totalOperacion) * 100) : 0,
+        porcentaje_extra: porcentajeExtra,
+        base_ars: base,
+        monto_ars: monto,
+        monto_usd: cuenta.monto_usd ?? null,
+      };
+    });
+    return {
+      cuentas: cuentasResueltas,
+      total: redondearMonto(cuentasResueltas.reduce((sum, cuenta) => sum + cuenta.monto_ars, 0)),
+    };
+  }
+
   /** Base (sin recargos) sobre la que se reparte, según el tipo de operación. */
   private calcularBaseReparto(
     data: OperacionCrearData,
@@ -492,7 +1034,14 @@ export class OperacionRepository {
       const descuento = Number(data.venta?.descuento_ars ?? 0);
       return subtotal - descuento;
     }
-    return Number(data.compra?.total_ars ?? data.compra?.subtotal_ars ?? 0);
+    const subtotalCompra = Number(data.compra?.subtotal_ars ?? 0);
+    if (subtotalCompra > 0) return subtotalCompra;
+    // Sin subtotal declarado, la base es la suma de los ítems: `total_ars` no
+    // sirve porque ya trae los recargos de cada cuenta sumados.
+    return (data.items ?? []).reduce(
+      (acc, item) => acc + Number(item.cantidad ?? 0) * Number(item.costo_unit_ars ?? 0),
+      0
+    );
   }
 
   private async resolverUsuarioSucursal(
@@ -526,16 +1075,26 @@ export class OperacionRepository {
     return rows[0].id as string;
   }
 
-  private async insertDetalle(client: PoolClient, operacionId: string, items: OperacionItemInput[]) {
+  private async insertDetalle(
+    client: PoolClient,
+    operacionId: string,
+    items: OperacionItemInput[],
+    esOperacionComercial: boolean
+  ) {
     for (const item of items) {
+      const cantidadImpactadaStock = esOperacionComercial
+        ? Number(item.cantidad_impactada_stock ?? item.cantidad)
+        : 0;
       await client.query(
         `INSERT INTO public.operacion_detalle
-           (operacion_id, producto_sucursal_id, cantidad, alicuota_iva, iva_ars, iva_usd, precio_unit_ars, precio_unit_usd, costo_unit_ars, costo_unit_usd)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            (operacion_id, producto_sucursal_id, cantidad, cantidad_impactada_stock, ultima_modificacion_stock_at, alicuota_iva, iva_ars, iva_usd, precio_unit_ars, precio_unit_usd, costo_unit_ars, costo_unit_usd)
+          VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN NOW() ELSE NULL END, $6, $7, $8, $9, $10, $11, $12)`,
         [
           operacionId,
           item.producto_sucursal_id,
           item.cantidad,
+          cantidadImpactadaStock,
+          cantidadImpactadaStock > 0,
           item.alicuota_iva ?? null,
           item.iva_ars ?? null,
           item.iva_usd ?? null,
@@ -607,15 +1166,22 @@ export class OperacionRepository {
     }
   }
 
-  private async insertCuentas(client: PoolClient, operacionId: string, cuentas: CuentaRepartoResuelta[]) {
+  private async insertCuentas(
+    client: PoolClient,
+    operacionId: string,
+    cuentas: CuentaRepartoResuelta[],
+    fechaEfectiva?: string,
+    observacion?: string | null
+  ) {
     for (const cuenta of cuentas) {
       await client.query(
         `INSERT INTO public.operacion_cuenta
-           (operacion_id, cuenta_financiera_id, porcentaje_venta, porcentaje_extra, monto_ars, monto_usd)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           (operacion_id, cuenta_financiera_id, porcentaje_venta, porcentaje_extra, monto_ars, monto_usd, fecha_efectiva, observacion)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8)`,
         [
           operacionId, cuenta.cuenta_financiera_id, cuenta.porcentaje_venta,
           cuenta.porcentaje_extra, cuenta.monto_ars, cuenta.monto_usd ?? null,
+          fechaEfectiva ?? null, observacion ?? null,
         ]
       );
     }
@@ -640,28 +1206,38 @@ export class OperacionRepository {
    * Si el producto no tiene costo de reposición o margen mínimo cargados, no se
    * puede calcular el piso y el ítem no se valida.
    */
-  private async validarMargenMinimo(client: PoolClient, items: OperacionItemInput[]) {
+  private async validarMargenMinimo(client: PoolClient, items: OperacionItemInput[], tenantId: string, version?: string) {
     for (const item of items) {
       const { rows } = await client.query(
-        `SELECT ps.costo_reposicion, ps.margen_minimo, p.nombre
+        `SELECT ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion, ps.margen_minimo,
+                p.nombre, ps.moneda_precio_venta, p.moneda_precio_base,
+                t.cotizacion_usd_ars, t.cotizacion_version::text AS cotizacion_version, t.cotizacion_actualizada_at
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
-         WHERE ps.id = $1`,
-        [item.producto_sucursal_id]
+         JOIN public.tenant t ON t.id = p.tenant_id
+         WHERE ps.id = $1 AND p.tenant_id = $2`,
+        [item.producto_sucursal_id, tenantId]
       );
       const fila = rows[0];
       if (!fila) continue; // ajustarStockVenta ya reporta el producto inexistente
 
-      const costo = fila.costo_reposicion !== null ? Number(fila.costo_reposicion) : null;
+      if ((fila.moneda_precio_venta === 'USD' || fila.moneda_precio_base === 'USD' || fila.moneda_costo_reposicion === 'USD') && version === undefined) {
+        throw new CatalogoError('La venta usa un precio vinculado a USD. Confirmá la cotización del catálogo antes de registrarla.', 'COTIZACION_REQUERIDA', 409);
+      }
+
+      const costoArs = costoArsVigente(fila.moneda_costo_reposicion, fila.costo_reposicion, fila.costo_reposicion_usd, {
+        cotizacion_usd_ars: fila.cotizacion_usd_ars, cotizacion_version: fila.cotizacion_version, actualizada_at: fila.cotizacion_actualizada_at,
+      });
+      const costo = costoArs !== null ? Number(costoArs) : null;
       const margen = fila.margen_minimo !== null ? Number(fila.margen_minimo) : null;
-      if (costo === null || margen === null || costo <= 0) continue;
+      const precioMinimo = calcularPrecioMinimo(costo, margen);
+      if (precioMinimo === null) continue;
 
       const precio = item.precio_unit_ars !== null && item.precio_unit_ars !== undefined
         ? Number(item.precio_unit_ars)
         : null;
       if (precio === null) continue;
 
-      const precioMinimo = costo * (1 + margen / 100);
       // Tolerancia de un centavo para no rechazar por redondeo.
       if (precio < precioMinimo - 0.01) {
         throw new BusinessError(
@@ -681,14 +1257,9 @@ export class OperacionRepository {
       if (!rows[0]) {
         throw new BusinessError(`El producto en stock ${item.producto_sucursal_id} no existe`);
       }
-      if (rows[0].cantidad_disponible < item.cantidad) {
-        const { rows: prodRows } = await client.query(
-          'SELECT nombre FROM public.producto WHERE id = $1',
-          [rows[0].producto_id]
-        );
-        const nombre = prodRows[0]?.nombre ?? item.producto_sucursal_id;
-        throw new BusinessError(`Stock insuficiente para ${nombre}`);
-      }
+      // La venta se registra aunque no haya stock suficiente: el disponible
+      // puede quedar negativo y se corrige con una compra o un ajuste manual.
+      // El formulario avisa antes de registrar, pero no lo impide.
       await client.query(
         'UPDATE public.producto_sucursal SET cantidad_disponible = cantidad_disponible - $1 WHERE id = $2',
         [item.cantidad, item.producto_sucursal_id]
@@ -706,7 +1277,14 @@ export class OperacionRepository {
         throw new BusinessError(`El producto en stock ${item.producto_sucursal_id} no existe`);
       }
       if (rows[0].cantidad_disponible < item.cantidad) {
-        throw new BusinessError(`Stock insuficiente para trasladar el producto ${rows[0].producto_id}`);
+        const { rows: prodRows } = await client.query(
+          'SELECT nombre FROM public.producto WHERE id = $1',
+          [rows[0].producto_id]
+        );
+        const nombre = prodRows[0]?.nombre ?? rows[0].producto_id;
+        throw new BusinessError(
+          `Stock insuficiente para trasladar ${nombre}: hay ${rows[0].cantidad_disponible} y se piden ${item.cantidad}.`
+        );
       }
 
       const { rows: destRows } = await client.query(
@@ -730,7 +1308,11 @@ export class OperacionRepository {
     }
   }
 
-  private async ajustarSaldos(client: PoolClient, cuentas: CuentaRepartoResuelta[], direccion: 'debito' | 'credito') {
+  private async ajustarSaldos(
+    client: PoolClient,
+    cuentas: Array<Pick<CuentaRepartoResuelta, 'cuenta_financiera_id' | 'monto_ars'>>,
+    direccion: 'debito' | 'credito'
+  ) {
     const signo = direccion === 'debito' ? -1 : 1;
     for (const cuenta of cuentas) {
       await client.query('SELECT id FROM public.cuenta_financiera WHERE id = $1 FOR UPDATE', [cuenta.cuenta_financiera_id]);

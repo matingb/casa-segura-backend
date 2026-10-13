@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "pageVersion": "sha256:596f40b3862900862491dbe3fd1fb203cf8a27f8159fd048a6d62022424802ac",
+  "claims": [
+    {
+      "id": "claim_8c071d0b74f740d399996dfe0a7737d1",
+      "statement": "Vitest discovers `src/**/*.test.ts`, supplies placeholder Supabase/database environment values, restores mocks, and loads a shared setup that silences `console.error` through a spy before each test.",
+      "evidence": [
+        {
+          "resource": "repo://vitest.config.ts#L1-L15",
+          "version": "repo-lines-v1:sha256:3d72fb1e7bccd2998aaf9e70fb2f1c352cb50cf75977af8f0a3ef033657363b2:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUsImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjdhOTVjY2RhYWUzODU2MzkyZWFhZTU3MjBlMmNiMTkwZWQyN2JjNzY2MWY1MWZiNDY4Yzg2ZGVlZTQ0YTdkODYiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        },
+        {
+          "resource": "repo://vitest.setup.ts#L1-L6",
+          "version": "repo-lines-v1:sha256:f82f4169277571f2d4de99a40c7c7e9959467eb26bcd60a16145dfc5f1f22e1d:eyJzZWxlY3RlZExpbmVDb3VudCI6NiwiZmlyc3RTZWxlY3RlZExpbmVIYXNoIjoiYjM0Mjg4YjMxMWEzOTVhODZmODFlYTUyODdkMjUxYWZiNjg5NjM2NTdhYTEwZjlmM2MyMGNiMjM3NDE2YWJhZiIsImxhc3RTZWxlY3RlZExpbmVIYXNoIjoiYTNkZGVmNzI0Nzg2YjRhZjQ1YWI3Y2FkODFkMzc3YWU1NDNiYjc4NDEyOTY1NjhmYjUyMjY5OThhZWMyMTYzNCIsInByZWNlZGluZ0NvbnRleHRMaW5lQ291bnQiOjAsInByZWNlZGluZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSIsImZvbGxvd2luZ0NvbnRleHRMaW5lQ291bnQiOjAsImZvbGxvd2luZ0NvbnRleHRIYXNoIjoiZTNiMGM0NDI5OGZjMWMxNDlhZmJmNGM4OTk2ZmI5MjQyN2FlNDFlNDY0OWI5MzRjYTQ5NTk5MWI3ODUyYjg1NSJ9"
+        }
+      ]
+    },
+    {
+      "id": "claim_df02f9f42bb74bae9488825646748d56",
+      "statement": "Operation controller tests mock the service and tenant helper, covering list/detail responses, valid creation for all four operation types, input validation, payment-allocation modes, business errors, and generic failures.",
+      "evidence": [
+        {
+          "resource": "repo://src/controllers/operacion.controller.test.ts#L1-L363",
+          "version": "repo-lines-v1:sha256:37bf8095136e1fff3b12c4bbff4175507f64e9d0d83cc72b129a6d6e6291e633:eyJzZWxlY3RlZExpbmVDb3VudCI6MzYzLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJmZjY2M2I0MDhhNWQ3OTdhNjk2MTI5MDQ2M2JiZDczZTY4OTFkZjY5Y2Q2NDBkM2E3ZDQyZmE5NDgyNzNmOTI2IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiI3ZWI3MDI1NzU5M2RhMDZmNjgyYTNkZGRhNTRhOWQyNjBkNGZjNTE0ZjY0NTIzN2Y1Y2E3NGIwOGY4ZGE2MWE2IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_d550dbfddf0841a090b25b664cef40ce",
+      "statement": "Payment-allocation unit tests cover percentage and amount calculation, surcharges, invalid totals, rounding tolerance, and mode dispatch.",
+      "evidence": [
+        {
+          "resource": "repo://src/utils/reparto-cuentas.test.ts#L1-L153",
+          "version": "repo-lines-v1:sha256:70abdac834c499c589405015170601f3b78d3265075f65d9b0f8a8d9bff0391c:eyJzZWxlY3RlZExpbmVDb3VudCI6MTUzLCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiI3MGExZWY4YjYwNzU4M2JlZGE5MmUzYTRkNmI3YzgyZmIyOWFlZTVkZjMzZjgzOTNlYjg1MGViOTAyYTI1MWViIiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJhM2RkZWY3MjQ3ODZiNGFmNDVhYjdjYWQ4MWQzNzdhZTU0M2JiNzg0MTI5NjU2OGZiNTIyNjk5OGFlYzIxNjM0IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    },
+    {
+      "id": "claim_51adef37104f4fd5afc4d38180d7a127",
+      "statement": "Product-branch service tests verify acceptance at the configured minimum margin, rejection below it, and behavior without a margin.",
+      "evidence": [
+        {
+          "resource": "repo://src/services/producto-sucursal.service.test.ts#L1-L29",
+          "version": "repo-lines-v1:sha256:9a71dc596bced752a0422c24f8e8fd56c5f00e74256b80b80ef20caa4b6bf53b:eyJzZWxlY3RlZExpbmVDb3VudCI6MjksImZpcnN0U2VsZWN0ZWRMaW5lSGFzaCI6IjU1ZDVmNzExNjg5ZWU3MjgxNWYxNDJiNDQ1NTczN2FmMGI2MjIxYjM0ODZlYmEwMWQ2NDMxNjA4MjhiYjQ1OTkiLCJsYXN0U2VsZWN0ZWRMaW5lSGFzaCI6ImEzZGRlZjcyNDc4NmI0YWY0NWFiN2NhZDgxZDM3N2FlNTQzYmI3ODQxMjk2NTY4ZmI1MjI2OTk4YWVjMjE2MzQiLCJwcmVjZWRpbmdDb250ZXh0TGluZUNvdW50IjowLCJwcmVjZWRpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUiLCJmb2xsb3dpbmdDb250ZXh0TGluZUNvdW50IjowLCJmb2xsb3dpbmdDb250ZXh0SGFzaCI6ImUzYjBjNDQyOThmYzFjMTQ5YWZiZjRjODk5NmZiOTI0MjdhZTQxZTQ2NDliOTM0Y2E0OTU5OTFiNzg1MmI4NTUifQ"
+        }
+      ]
+    },
+    {
+      "id": "claim_340e643c5404485da4e5aa64280df215",
+      "statement": "Authentication middleware tests mock its AuthService boundary and cover absent, cookie, and header tokens; failures; and stale-cookie cleanup.",
+      "evidence": [
+        {
+          "resource": "repo://src/middlewares/auth.middleware.test.ts#L1-L104",
+          "version": "repo-lines-v1:sha256:dacbb0bda7d74f8a0e19f4b9c9c5bd30bfadb04bab10839ed90ddd509f34626c:eyJzZWxlY3RlZExpbmVDb3VudCI6MTA0LCJmaXJzdFNlbGVjdGVkTGluZUhhc2giOiJmZjY2M2I0MDhhNWQ3OTdhNjk2MTI5MDQ2M2JiZDczZTY4OTFkZjY5Y2Q2NDBkM2E3ZDQyZmE5NDgyNzNmOTI2IiwibGFzdFNlbGVjdGVkTGluZUhhc2giOiJhM2RkZWY3MjQ3ODZiNGFmNDVhYjdjYWQ4MWQzNzdhZTU0M2JiNzg0MTI5NjU2OGZiNTIyNjk5OGFlYzIxNjM0IiwicHJlY2VkaW5nQ29udGV4dExpbmVDb3VudCI6MCwicHJlY2VkaW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1IiwiZm9sbG93aW5nQ29udGV4dExpbmVDb3VudCI6MCwiZm9sbG93aW5nQ29udGV4dEhhc2giOiJlM2IwYzQ0Mjk4ZmMxYzE0OWFmYmY0Yzg5OTZmYjkyNDI3YWU0MWU0NjQ5YjkzNGNhNDk1OTkxYjc4NTJiODU1In0"
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "by": "openwiki/0.5.0",
+    "at": "2026-09-05T03:32:47.137Z"
+  }
+}

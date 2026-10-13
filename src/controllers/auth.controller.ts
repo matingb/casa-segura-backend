@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { isAuthError } from '@supabase/supabase-js';
 import { AuthService } from '../services/auth.service';
 import { AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS } from '../config/cookie';
 import { successResponse, errorResponse } from '../utils/response';
@@ -25,9 +26,14 @@ export class AuthController {
       res.status(200).json(successResponse({ user: { id: user.id, email: user.email } }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Internal server error during login';
+      if (isAuthError(error)) {
+        // Credenciales invalidas: es un 401 esperable, no un fallo del servidor.
+        res.status(401).json(errorResponse(message));
+        return;
+      }
+
       console.error('Login error:', error);
-      const isAuthError = error instanceof Error && error.name === 'AuthError';
-      res.status(isAuthError ? 401 : 500).json(errorResponse(message));
+      res.status(500).json(errorResponse(message));
     }
   };
 
