@@ -17,7 +17,19 @@ function manejarError(error: unknown, res: Response, contexto: string) {
   res.status(500).json(errorResponse(message));
 }
 
+type RegionBody = { nombre?: string; descuento?: number; activo?: boolean; sucursal_ids?: string[] };
+
 export class RegionController {
+  getRegiones = async (req: TypedRequest<{ solo_activas?: string }, unknown, unknown>, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const regiones = await service.getRegiones(tenantId, req.query.solo_activas === 'true');
+      res.status(200).json(successResponse(regiones));
+    } catch (error: unknown) {
+      manejarError(error, res, 'getRegiones');
+    }
+  };
+
   getRegionesPorSucursal = async (
     req: TypedRequest<{ solo_activas?: string }, unknown, { sucursalId: string }>,
     res: Response
@@ -45,7 +57,7 @@ export class RegionController {
   };
 
   createRegion = async (
-    req: TypedRequestBody<{ sucursal_id: string; nombre: string; descuento?: number; activo?: boolean }>,
+    req: TypedRequestBody<RegionBody>,
     res: Response
   ): Promise<void> => {
     try {
@@ -58,7 +70,7 @@ export class RegionController {
   };
 
   updateRegion = async (
-    req: TypedRequest<unknown, { nombre?: string; descuento?: number; activo?: boolean }, { id: string }>,
+    req: TypedRequest<unknown, RegionBody, { id: string }>,
     res: Response
   ): Promise<void> => {
     try {

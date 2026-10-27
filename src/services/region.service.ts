@@ -1,8 +1,14 @@
 import { RegionRepository, RegionData } from '../repositories/region.repository';
 import { BusinessError } from '../utils/errors';
 
+type RegionInput = Partial<Pick<RegionData, 'nombre' | 'descuento' | 'activo'>> & { sucursal_ids?: unknown };
+
 export class RegionService {
   private repo = new RegionRepository();
+
+  async getRegiones(tenantId: string, soloActivas = false) {
+    return this.repo.findAll(tenantId, soloActivas);
+  }
 
   async getRegionesPorSucursal(sucursalId: string, tenantId: string, soloActivas = false) {
     const sucursalValida = await this.repo.sucursalPerteneceAlTenant(sucursalId, tenantId);
@@ -20,71 +26,54 @@ export class RegionService {
     return region;
   }
 
-  async crearRegion(tenantId: string, data: RegionData) {
-    const nombre = (data.nombre ?? '').trim();
-    if (!nombre) {
-      throw new BusinessError('El nombre de la región es obligatorio.');
-    }
-    if (nombre.length > 100) {
-      throw new BusinessError('El nombre de la región no puede superar los 100 caracteres.');
-    }
-
-    if (!data.sucursal_id) {
-      throw new BusinessError('La sucursal es obligatoria.');
-    }
-
-    const sucursalValida = await this.repo.sucursalPerteneceAlTenant(data.sucursal_id, tenantId);
-    if (!sucursalValida) {
-      throw new BusinessError('La sucursal seleccionada no existe.');
-    }
-
+  async crearRegion(tenantId: string, data: RegionInput) {
+    const nombre = this.validarNombre(data.nombre);
+    await this.verificarNombreLibre(tenantId, nombre);
+    const sucursalIds = await this.validarSucursales(data.sucursal_ids, tenantId);
     this.validarPorcentaje(data.descuento);
 
-    // Verificar si ya existe una región con ese nombre en la misma sucursal
-    const existentes = await this.repo.findBySucursal(data.sucursal_id, tenantId);
-    if (existentes.some((r) => r.nombre.toLowerCase() === nombre.toLowerCase())) {
-      throw new BusinessError('Ya existe una región con ese nombre en esta sucursal.');
-    }
-
     return this.repo.create(tenantId, {
-      sucursal_id: data.sucursal_id,
       nombre,
       descuento: data.descuento !== undefined && data.descuento !== null ? Number(data.descuento) : 0,
       activo: data.activo ?? true,
+      sucursal_ids: sucursalIds,
     });
   }
 
-  async actualizarRegion(
-    id: string,
-    tenantId: string,
-    data: Partial<Pick<RegionData, 'nombre' | 'descuento' | 'activo'>>
-  ) {
+  async actualizarRegion(id: string, tenantId: string, data: RegionInput) {
     const actual = await this.repo.findById(id, tenantId);
     if (!actual) {
       throw new BusinessError('La región no existe.');
     }
 
+    const cambios: Partial<RegionData> = {};
     if (data.nombre !== undefined) {
-      const nombre = data.nombre.trim();
-      if (!nombre) {
-        throw new BusinessError('El nombre de la región no puede quedar vacío.');
-      }
-      if (nombre.length > 100) {
-        throw new BusinessError('El nombre de la región no puede superar los 100 caracteres.');
-      }
-      const existentes = await this.repo.findBySucursal(actual.sucursal_id, tenantId);
-      if (existentes.some((r) => r.id !== id && r.nombre.toLowerCase() === nombre.toLowerCase())) {
-        throw new BusinessError('Ya existe otra región con ese nombre en esta sucursal.');
-      }
-      data.nombre = nombre;
+      cambios.nombre = this.validarNombre(data.nombre);
+      await this.verificarNombreLibre(tenantId, cambios.nombre, id);
     }
-
     if (data.descuento !== undefined) {
       this.validarPorcentaje(data.descuento);
-      data.descuento = Number(data.descuento);
+      cambios.descuento = Number(data.descuento);
+    }
+    if (data.activo !== undefined) {
+      cambios.activo = data.activo;
+    }
+    if (data.sucursal_ids !== undefined) {
+      cambios.sucursal_ids = await this.validarSucursales(data.sucursal_ids, tenantId);
+      // Un punto de venta que algún cliente usa con esta región no se puede quitar.
+      const quitadas = actual.sucursales.map((s) => s.id).filter((s) => !cambios.sucursal_ids!.includes(s));
+      if (quitadas.length > 0) {
+        const enUso = await this.repo.contarClientesPorSucursal(id, quitadas);
+        if (enUso.length > 0) {
+          const detalle = enUso.map((u) => `${u.sucursal_nombre} (${u.clientes} cliente${u.clientes === 1 ? '' : 's'})`).join(', ');
+          throw new BusinessError(
+            `No se puede quitar de la región: ${detalle}. Esos clientes tienen asignada esta región en ese punto de venta; cambiales la región primero.`
+          );
+        }
+      }
     }
 
-    return this.repo.update(id, tenantId, data);
+    return this.repo.update(id, tenantId, cambios);
   }
 
   async desactivarRegion(id: string, tenantId: string) {
@@ -121,14 +110,45 @@ export class RegionService {
       throw new BusinessError('La sucursal seleccionada no existe.');
     }
     const region = await this.repo.findById(regionId, tenantId);
-    if (!region || region.sucursal_id !== sucursalId) {
-      throw new BusinessError('La región seleccionada no pertenece a la sucursal indicada.');
+    if (!region || !region.sucursales.some((s) => s.id === sucursalId)) {
+      throw new BusinessError('La región seleccionada no incluye el punto de venta indicado.');
     }
     return this.repo.asignarRegionCliente(clienteId, sucursalId, regionId, tenantId);
   }
 
   async quitarRegionCliente(clienteId: string, sucursalId: string, tenantId: string) {
     return this.repo.quitarRegionCliente(clienteId, sucursalId, tenantId);
+  }
+
+  private validarNombre(valor: unknown): string {
+    const nombre = typeof valor === 'string' ? valor.trim() : '';
+    if (!nombre) {
+      throw new BusinessError('El nombre de la región es obligatorio.');
+    }
+    if (nombre.length > 100) {
+      throw new BusinessError('El nombre de la región no puede superar los 100 caracteres.');
+    }
+    return nombre;
+  }
+
+  /** El nombre es único por empresa (sin distinguir mayúsculas). */
+  private async verificarNombreLibre(tenantId: string, nombre: string, excluirId?: string) {
+    const existentes = await this.repo.findAll(tenantId);
+    if (existentes.some((r) => r.id !== excluirId && r.nombre.toLowerCase() === nombre.toLowerCase())) {
+      throw new BusinessError('Ya existe una región con ese nombre.');
+    }
+  }
+
+  /** Al menos un punto de venta, sin repetir, todos de la empresa. */
+  private async validarSucursales(valor: unknown, tenantId: string): Promise<string[]> {
+    if (!Array.isArray(valor) || valor.length === 0 || !valor.every((v) => typeof v === 'string' && v)) {
+      throw new BusinessError('Elegí al menos un punto de venta para la región.');
+    }
+    const ids = [...new Set(valor as string[])];
+    if ((await this.repo.sucursalesDelTenant(ids, tenantId)) !== ids.length) {
+      throw new BusinessError('Alguno de los puntos de venta elegidos no existe.');
+    }
+    return ids;
   }
 
   private validarPorcentaje(valor?: number | null) {

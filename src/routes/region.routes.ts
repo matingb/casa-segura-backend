@@ -5,6 +5,7 @@ import { authMiddleware } from '../middlewares/auth.middleware';
 const router = Router();
 const controller = new RegionController();
 
+router.get('/',                       authMiddleware, controller.getRegiones);
 router.get('/sucursal/:sucursalId',   authMiddleware, controller.getRegionesPorSucursal);
 router.get('/:id',                    authMiddleware, controller.getRegion);
 router.post('/',                      authMiddleware, controller.createRegion);

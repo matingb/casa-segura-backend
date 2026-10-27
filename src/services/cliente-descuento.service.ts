@@ -111,7 +111,7 @@ export class ClienteDescuentoService {
     }
 
     const region = await this.regionRepo.findById(regionId, tenantId);
-    if (!region || region.sucursal_id !== sucursalId) {
+    if (!region || !region.sucursales.some((s) => s.id === sucursalId)) {
       throw new BusinessError('La región no pertenece a la sucursal seleccionada.');
     }
 
