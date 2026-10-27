@@ -40,6 +40,22 @@ const montosDe = (data: Partial<ProductoData>) => ({
   ...('costo' in data ? { costo: data.costo ?? null } : {}),
 });
 
+/**
+ * El código es único por empresa, también contra productos eliminados (la
+ * restricción de la base no los excluye): se traduce el error a un mensaje claro.
+ */
+async function conCodigoUnico<T>(codigo: unknown, guardar: () => Promise<T>): Promise<T> {
+  try {
+    return await guardar();
+  } catch (error: unknown) {
+    const pg = error as { code?: string; constraint?: string };
+    if (pg?.code === '23505' && pg.constraint === 'producto_tenant_id_codigo_key') {
+      throw new BusinessError(`Ya existe un producto con el código "${String(codigo ?? '').trim()}" (puede estar eliminado). Usá otro código.`);
+    }
+    throw error;
+  }
+}
+
 export class ProductoService {
   private productoRepository: ProductoRepository;
 
@@ -89,6 +105,10 @@ export class ProductoService {
   }
 
   async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
+    return conCodigoUnico(data.codigo, () => this.crear(data, tenantId));
+  }
+
+  private async crear(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
     this.validarDescuentoBase(data.descuento_base);
     data = normalizarMontos(data);
     if (tieneMontos(data)) {
@@ -101,6 +121,10 @@ export class ProductoService {
   }
 
   async updateProducto(id: string, data: Partial<ProductoData>, tenantId: string) {
+    return conCodigoUnico(data.codigo, () => this.actualizar(id, data, tenantId));
+  }
+
+  private async actualizar(id: string, data: Partial<ProductoData>, tenantId: string) {
     const producto = await this.productoRepository.findById(id, tenantId);
     if (!producto) return null;
     if ('descuento_base' in data) {
