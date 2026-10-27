@@ -23,7 +23,7 @@ export class CotizacionRepository {
         JOIN public.rol r ON r.id = us.id_rol AND r.tenant_id = u.tenant_id
         JOIN public.permiso_rol pr ON pr.id_rol = r.id
         JOIN public.permiso p ON p.id = pr.id_permiso AND p.nombre = 'cotizacion.actualizar'
-        WHERE us.usuario_id = u.id
+        WHERE us.usuario_id = u.id AND us.activo = TRUE
       ) AS puede_actualizar FROM public.usuario u
       WHERE u.auth_id = $1 AND u.tenant_id = $2 AND u.activo = TRUE`, [authId, tenantId]);
     return rows[0] as { id: string; puede_actualizar: boolean } | undefined;

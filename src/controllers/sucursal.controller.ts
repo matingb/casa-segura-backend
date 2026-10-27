@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
-import { SucursalService } from '../services/sucursal.service';
-import { SucursalData } from '../repositories/sucursal.repository';
+import { SucursalInput, SucursalService } from '../services/sucursal.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse } from '../utils/response';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
@@ -50,7 +49,7 @@ export class SucursalController {
     }
   };
 
-  create = async (req: TypedRequestBody<SucursalData>, res: Response): Promise<void> => {
+  create = async (req: TypedRequestBody<SucursalInput>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
       const sucursal = await service.create(tenantId, req.body, req.user!.id);
@@ -61,7 +60,7 @@ export class SucursalController {
   };
 
   update = async (
-    req: TypedRequest<unknown, Partial<SucursalData>, { id: string }>,
+    req: TypedRequest<unknown, Partial<SucursalInput>, { id: string }>,
     res: Response
   ): Promise<void> => {
     try {
@@ -88,6 +87,30 @@ export class SucursalController {
       res.status(200).json(successResponse(sucursal));
     } catch (error: unknown) {
       manejarError(error, res, 'delete');
+    }
+  };
+
+  getUsuarios = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const usuarios = await service.getUsuariosAsignados(req.params.id, tenantId, req.user!.id);
+      if (!usuarios) {
+        res.status(404).json(errorResponse('Sucursal no encontrada'));
+        return;
+      }
+      res.status(200).json(successResponse(usuarios));
+    } catch (error: unknown) {
+      manejarError(error, res, 'getUsuarios');
+    }
+  };
+
+  /** Usuarios y roles del tenant para el selector de asignaciones. */
+  getOpcionesAsignacion = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      res.status(200).json(successResponse(await service.getOpcionesAsignacion(tenantId, req.user!.id)));
+    } catch (error: unknown) {
+      manejarError(error, res, 'getOpcionesAsignacion');
     }
   };
 

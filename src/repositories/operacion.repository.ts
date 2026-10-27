@@ -1054,7 +1054,7 @@ export class OperacionRepository {
       `SELECT us.id
        FROM public.usuario_sucursal us
        JOIN public.usuario u ON u.id = us.usuario_id
-       WHERE u.auth_id = $1 AND us.sucursal_id = $2 AND u.tenant_id = $3
+       WHERE u.auth_id = $1 AND us.sucursal_id = $2 AND u.tenant_id = $3 AND us.activo = TRUE
        LIMIT 1`,
       [authId, sucursalId, tenantId]
     );

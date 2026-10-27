@@ -18,9 +18,17 @@ describe('SucursalService', () => {
     service = new SucursalService();
     vi.mocked(SucursalRepository.prototype.contarActivas).mockResolvedValue(3);
     vi.mocked(SucursalRepository.prototype.estaAsignado).mockResolvedValue(true);
+    vi.mocked(SucursalRepository.prototype.esAdministrador).mockResolvedValue(true);
   });
 
   describe('create', () => {
+    it('solo un administrador puede crear sucursales', async () => {
+      vi.mocked(SucursalRepository.prototype.esAdministrador).mockResolvedValue(false);
+
+      await expect(service.create(TENANT, { nombre: 'Sur' }, AUTH)).rejects.toMatchObject({ status: 403, code: 'SIN_PERMISO' });
+      expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
+    });
+
     it('impide cargar un dólar por sucursal cuando existe referencia central', async () => {
       vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: '1200.000000', cotizacion_version: '1', actualizada_at: null });
       await expect(service.create(TENANT, { nombre: 'Sur', valor_dolar: 1300 }, AUTH)).rejects.toThrow('El dólar se configura para toda la empresa');
@@ -35,7 +43,7 @@ describe('SucursalService', () => {
         nombre: 'Sucursal Sur',
         valor_dolar: 1200,
         descuento: 5,
-      }, AUTH);
+      }, AUTH, undefined);
     });
 
     it('rechaza nombre vacío', async () => {
@@ -82,7 +90,7 @@ describe('SucursalService', () => {
 
       await service.update('s1', TENANT, { descuento: 8 }, AUTH);
 
-      expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { descuento: 8 });
+      expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { descuento: 8 }, undefined);
     });
 
     it('rechaza con 403 si el usuario no está asignado a la sucursal', async () => {
@@ -129,6 +137,80 @@ describe('SucursalService', () => {
         'No se puede dar de baja la casa central. Designá otra sucursal como central primero.'
       );
       expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('asignación de usuarios', () => {
+    const YO = { id: 'u-yo', nombre: 'Yo', email: null, es_actual: true };
+    const OTRO = { id: 'u-otro', nombre: 'Otro', email: null, es_actual: false };
+    const ADMIN = { id: 'rol-admin', nombre: 'Administrador' };
+    const VENDEDOR = { id: 'rol-vend', nombre: 'Vendedor' };
+
+    beforeEach(() => {
+      vi.mocked(SucursalRepository.prototype.esAdministrador).mockResolvedValue(true);
+      vi.mocked(SucursalRepository.prototype.findUsuariosDelTenant).mockResolvedValue([YO, OTRO]);
+      vi.mocked(SucursalRepository.prototype.findRolesDelTenant).mockResolvedValue([ADMIN, VENDEDOR]);
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: true } as any);
+      vi.mocked(SucursalRepository.prototype.findUsuariosAsignados).mockResolvedValue([
+        { usuario_id: YO.id, id_rol: ADMIN.id, es_actual: true },
+      ]);
+      vi.mocked(SucursalRepository.prototype.update).mockResolvedValue({ id: 's1' } as any);
+      vi.mocked(SucursalRepository.prototype.create).mockResolvedValue({ id: 's1' } as any);
+    });
+
+    it('al editar, pasa la lista completa al repositorio', async () => {
+      const usuarios = [
+        { usuario_id: YO.id, id_rol: ADMIN.id },
+        { usuario_id: OTRO.id, id_rol: VENDEDOR.id },
+      ];
+      await service.update('s1', TENANT, { nombre: 'Sur', usuarios }, AUTH);
+
+      expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { nombre: 'Sur' }, usuarios);
+    });
+
+    it('solo un administrador puede asignar', async () => {
+      vi.mocked(SucursalRepository.prototype.esAdministrador).mockResolvedValue(false);
+
+      await expect(
+        service.update('s1', TENANT, { usuarios: [{ usuario_id: YO.id, id_rol: ADMIN.id }] }, AUTH)
+      ).rejects.toMatchObject({ status: 403, code: 'SIN_PERMISO' });
+      expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
+    });
+
+    it('nadie puede quitarse a sí mismo', async () => {
+      await expect(
+        service.update('s1', TENANT, { usuarios: [{ usuario_id: OTRO.id, id_rol: ADMIN.id }] }, AUTH)
+      ).rejects.toThrow('No podés quitarte de una sucursal');
+    });
+
+    it('nadie puede cambiarse su propio rol', async () => {
+      await expect(
+        service.update('s1', TENANT, { usuarios: [{ usuario_id: YO.id, id_rol: VENDEDOR.id }] }, AUTH)
+      ).rejects.toThrow('No podés cambiar tu propio rol');
+    });
+
+    it('rechaza usuarios o roles que no son del tenant', async () => {
+      await expect(
+        service.update('s1', TENANT, { usuarios: [{ usuario_id: YO.id, id_rol: ADMIN.id }, { usuario_id: 'ajeno', id_rol: ADMIN.id }] }, AUTH)
+      ).rejects.toThrow('Alguno de los usuarios elegidos no existe o está inactivo.');
+      await expect(
+        service.update('s1', TENANT, { usuarios: [{ usuario_id: YO.id, id_rol: ADMIN.id }, { usuario_id: OTRO.id, id_rol: 'rol-ajeno' }] }, AUTH)
+      ).rejects.toThrow('Alguno de los roles elegidos no existe.');
+    });
+
+    it('rechaza un usuario repetido', async () => {
+      await expect(
+        service.update('s1', TENANT, { usuarios: [{ usuario_id: YO.id, id_rol: ADMIN.id }, { usuario_id: YO.id, id_rol: ADMIN.id }] }, AUTH)
+      ).rejects.toThrow('Un usuario no puede estar asignado dos veces');
+    });
+
+    it('al crear, agrega a quien crea como Administrador', async () => {
+      await service.create(TENANT, { nombre: 'Sur', usuarios: [{ usuario_id: OTRO.id, id_rol: VENDEDOR.id }] }, AUTH);
+
+      expect(SucursalRepository.prototype.create).toHaveBeenCalledWith(TENANT, { nombre: 'Sur' }, AUTH, [
+        { usuario_id: OTRO.id, id_rol: VENDEDOR.id },
+        { usuario_id: YO.id, id_rol: ADMIN.id },
+      ]);
     });
   });
 

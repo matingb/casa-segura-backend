@@ -12,7 +12,7 @@ export class UsuarioSucursalRepository {
       JOIN public.usuario  u ON u.id = us.usuario_id
       JOIN public.sucursal s ON s.id = us.sucursal_id
       JOIN public.rol      r ON r.id = us.id_rol
-      WHERE u.tenant_id = $1
+      WHERE u.tenant_id = $1 AND us.activo = TRUE
       ORDER BY s.nombre, u.nombre
     `;
     const { rows } = await pool.query(query, [tenantId]);
