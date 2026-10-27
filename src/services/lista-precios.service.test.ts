@@ -13,7 +13,7 @@ describe('ListaPreciosService: cero y margen', () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
       if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central' }] };
       if (sql.includes('FROM public.cliente WHERE')) return { rows: [{ id: 'cliente', nombre: 'Cliente', descuento_porcentaje: 0 }] };
-      if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ id: 'stock', producto_id: 'producto', nombre: 'Cero explícito', moneda_precio_venta: 'USD', precio_venta_usd: '0.0000', precio_referencia_confirmada: true, costo_reposicion: '50000.00', margen_minimo: '10.00' }] };
+      if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ id: 'stock', producto_id: 'producto', nombre: 'Cero explícito', moneda_precio_efectiva: 'USD', precio_efectivo_usd: '0.0000', precio_efectivo_confirmado: true, costo_reposicion: '50000.00', margen_minimo: '10.00' }] };
       return { rows: [] };
     }) as typeof pool.query);
     const lista = await new ListaPreciosService().obtener('empresa', 'sucursal', 'cliente');
@@ -25,8 +25,8 @@ describe('ListaPreciosService: descuentos generales', () => {
   beforeEach(() => vi.clearAllMocks());
 
   const producto = {
-    id: 'stock', producto_id: 'producto', nombre: 'Cámara domo', moneda_precio_venta: 'ARS', precio_venta_ars: '10000.00',
-    precio_referencia_confirmada: true, descuento: null, descuento_base: null,
+    id: 'stock', producto_id: 'producto', nombre: 'Cámara domo', moneda_precio_efectiva: 'ARS', precio_efectivo_ars: '10000.00',
+    precio_efectivo_confirmado: true, descuento: null, descuento_base: null,
     tipo_id: 'camaras', subtipo_id: 'domo', tipo_descuento_general: null, subtipo_descuento_general: null,
   };
 

@@ -47,7 +47,7 @@ describe('DescuentoEngineService', () => {
           rows: [{ producto_id: 'prod-1', porcentaje: 5 }],
         } as any;
       }
-      if (sql.includes('FROM public.producto_sucursal ps')) {
+      if (sql.includes('FROM public.producto_sucursal_catalogo ps')) {
         return {
           rows: [
             {
@@ -55,7 +55,8 @@ describe('DescuentoEngineService', () => {
               producto_id: 'prod-1',
               codigo: 'P01',
               nombre: 'Cámara IP',
-              precio_base: 20000,
+              moneda_precio: 'ARS',
+              precio_ars: 20000,
               costo_reposicion: 10000,
               margen_minimo: 40, // piso = 14000
               descuento_producto_sucursal: null,

@@ -186,20 +186,24 @@ export class DescuentoEngineService {
             p.id  AS producto_id,
             p.codigo,
             p.nombre,
-            p.precio_base,
-            p.precio_base_usd, p.moneda_precio_base,
+            -- Precio del stock; sin stock en la sucursal, el base del producto.
+            COALESCE(ps.moneda_precio_efectiva, p.moneda_precio_base) AS moneda_precio,
+            CASE WHEN ps.id IS NULL THEN p.precio_base ELSE ps.precio_efectivo_ars END AS precio_ars,
+            CASE WHEN ps.id IS NULL THEN p.precio_base_usd ELSE ps.precio_efectivo_usd END AS precio_usd,
+            p.moneda_precio_base,
             ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion,
             ps.margen_minimo,
             ps.descuento AS descuento_producto_sucursal,
             p.descuento_base AS descuento_producto_base,
-            p.tipo_id,
+            st.tipo_id,
             p.subtipo_id,
             t.descuento_general AS tipo_descuento_general,
             st.descuento_general AS subtipo_descuento_general
-          FROM public.producto_sucursal ps
+          FROM public.producto_sucursal_catalogo ps
           JOIN public.producto p ON p.id = ps.producto_id
-          LEFT JOIN public.tipo t ON t.id = p.tipo_id
+          -- La categoría del producto es la de su subcategoría.
           LEFT JOIN public.subtipo st ON st.id = p.subtipo_id
+          LEFT JOIN public.tipo t ON t.id = st.tipo_id
           WHERE ps.id = $1 AND ps.sucursal_id = $2 AND p.tenant_id = $3
         `;
         params = [item.productoSucursalId, sucursalId, tenantId];
@@ -210,20 +214,24 @@ export class DescuentoEngineService {
             p.id  AS producto_id,
             p.codigo,
             p.nombre,
-            p.precio_base,
-            p.precio_base_usd, p.moneda_precio_base,
+            -- Precio del stock; sin stock en la sucursal, el base del producto.
+            COALESCE(ps.moneda_precio_efectiva, p.moneda_precio_base) AS moneda_precio,
+            CASE WHEN ps.id IS NULL THEN p.precio_base ELSE ps.precio_efectivo_ars END AS precio_ars,
+            CASE WHEN ps.id IS NULL THEN p.precio_base_usd ELSE ps.precio_efectivo_usd END AS precio_usd,
+            p.moneda_precio_base,
             ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion,
             ps.margen_minimo,
             ps.descuento AS descuento_producto_sucursal,
             p.descuento_base AS descuento_producto_base,
-            p.tipo_id,
+            st.tipo_id,
             p.subtipo_id,
             t.descuento_general AS tipo_descuento_general,
             st.descuento_general AS subtipo_descuento_general
           FROM public.producto p
-          LEFT JOIN public.producto_sucursal ps ON ps.producto_id = p.id AND ps.sucursal_id = $2
-          LEFT JOIN public.tipo t ON t.id = p.tipo_id
+          LEFT JOIN public.producto_sucursal_catalogo ps ON ps.producto_id = p.id AND ps.sucursal_id = $2
+          -- La categoría del producto es la de su subcategoría.
           LEFT JOIN public.subtipo st ON st.id = p.subtipo_id
+          LEFT JOIN public.tipo t ON t.id = st.tipo_id
           WHERE p.id = $1 AND p.tenant_id = $3
         `;
         params = [item.productoId, sucursalId, tenantId];
@@ -235,8 +243,8 @@ export class DescuentoEngineService {
       const prod = prodRows[0];
       if (!prod) continue;
 
-      const monedaBase = prod.moneda_precio_base === 'USD' ? 'USD' : 'ARS';
-      const precioResuelto = resolverPrecio(monedaBase, monedaBase === 'USD' ? prod.precio_base_usd : prod.precio_base, contexto);
+      const monedaBase = prod.moneda_precio === 'USD' ? 'USD' : 'ARS';
+      const precioResuelto = resolverPrecio(monedaBase, monedaBase === 'USD' ? prod.precio_usd : prod.precio_ars, contexto);
       if (monedaBase === 'USD' && !precioResuelto.ars) throw new CatalogoError('Configurá el dólar para evaluar este precio USD.', 'COTIZACION_REQUERIDA');
       const precioBase = precioResuelto.ars != null ? Number(precioResuelto.ars) : 0;
       const costoArs = costoArsVigente(prod.moneda_costo_reposicion, prod.costo_reposicion, prod.costo_reposicion_usd, contexto);

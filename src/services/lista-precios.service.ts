@@ -53,7 +53,7 @@ export class ListaPreciosService {
       pool.query(`SELECT ps.*, p.codigo, p.nombre, p.marca, p.modelo, p.subtipo_id, p.descuento_base,
         st.tipo_id, st.nombre AS subtipo_nombre,
         st.descuento_general AS subtipo_descuento_general, t.descuento_general AS tipo_descuento_general
-        FROM public.producto_sucursal ps JOIN public.producto p ON p.id = ps.producto_id
+        FROM public.producto_sucursal_catalogo ps JOIN public.producto p ON p.id = ps.producto_id
         LEFT JOIN public.subtipo st ON st.id = p.subtipo_id
         LEFT JOIN public.tipo t ON t.id = st.tipo_id
         WHERE ps.sucursal_id = $1 AND p.tenant_id = $2 AND p.activo = TRUE
@@ -64,10 +64,11 @@ export class ListaPreciosService {
     const excepcionesSucursal = (campo: 'tipo_id' | 'subtipo_id', id: string | null) =>
       excepciones.rows.filter((e) => id && e[campo] === id).map((e) => ({ sucursalId, porcentaje: Number(e.porcentaje) }));
     const items = productos.rows.map((row) => {
-      const moneda = row.moneda_precio_venta === 'USD' ? 'USD' : 'ARS';
-      const principal = moneda === 'USD' ? row.precio_venta_usd : row.precio_venta_ars;
+      // Precio efectivo: el del stock o, si no tiene, el base del producto.
+      const moneda = row.moneda_precio_efectiva === 'USD' ? 'USD' : 'ARS';
+      const principal = moneda === 'USD' ? row.precio_efectivo_usd : row.precio_efectivo_ars;
       const precio = resolverPrecio(moneda, principal, contexto);
-      if (!row.precio_referencia_confirmada && row.precio_venta_usd != null) precio.estado = 'LEGADO_PENDIENTE_REVISION';
+      if (!row.precio_efectivo_confirmado && row.precio_efectivo_usd != null) precio.estado = 'LEGADO_PENDIENTE_REVISION';
       if (moneda === 'USD' && !contexto.cotizacion_usd_ars) throw new CatalogoError('Configurá el valor del dólar para evaluar precios USD.', 'COTIZACION_REQUERIDA');
       // Costo en la moneda del precio: mismo principal si coinciden, si no se
       // convierte con la cotización vigente.

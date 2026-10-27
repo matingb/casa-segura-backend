@@ -196,7 +196,8 @@ export class ProductoSucursalService {
     data = normalizarMontos(data);
     // Costo y precio guardados, resueltos por la vista con la cotización actual.
     const costoActual: Monto = { ars: actual.costo_reposicion_ars_resuelto ?? actual.costo_reposicion, usd: actual.costo_reposicion_usd, moneda: actual.moneda_costo_reposicion };
-    const precioActual: Monto = { ars: actual.precio_venta_ars_resuelto ?? actual.precio_venta_ars, usd: actual.precio_venta_usd, moneda: actual.moneda_precio_venta };
+    // Precio efectivo: el propio o, si no tiene, el base del producto.
+    const precioActual: Monto = { ars: actual.precio_venta_ars_resuelto, usd: actual.precio_efectivo_usd, moneda: actual.moneda_precio_efectiva };
     const costoLegado: Monto | null = 'costo_reposicion' in data ? { ars: data.costo_reposicion, usd: null, moneda: 'ARS' } : null;
     const margen = 'margen_minimo' in data ? data.margen_minimo : actual.margen_minimo;
     if (tieneMontos(data)) {
