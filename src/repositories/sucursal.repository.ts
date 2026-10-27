@@ -10,14 +10,34 @@ export interface SucursalData {
 }
 
 export class SucursalRepository {
-  async findAll(tenantId: string, soloActivas = false) {
+  /** `asignado` indica si el usuario autenticado está asignado a cada sucursal. */
+  async findAll(tenantId: string, authId: string, soloActivas = false) {
     const query = `
-      SELECT * FROM public.sucursal
-      WHERE tenant_id = $1 ${soloActivas ? 'AND activo = TRUE' : ''}
-      ORDER BY es_central DESC, nombre
+      SELECT s.*,
+             EXISTS (
+               SELECT 1 FROM public.usuario_sucursal us
+               JOIN public.usuario u ON u.id = us.usuario_id
+               WHERE us.sucursal_id = s.id AND u.auth_id = $2
+             ) AS asignado
+      FROM public.sucursal s
+      WHERE s.tenant_id = $1 ${soloActivas ? 'AND s.activo = TRUE' : ''}
+      ORDER BY s.es_central DESC, s.nombre
     `;
-    const { rows } = await pool.query(query, [tenantId]);
+    const { rows } = await pool.query(query, [tenantId, authId]);
     return rows;
+  }
+
+  /** Incluye sucursales inactivas: las asignaciones se conservan al darlas de baja. */
+  async estaAsignado(id: string, authId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM public.usuario_sucursal us
+         JOIN public.usuario u ON u.id = us.usuario_id
+         WHERE us.sucursal_id = $1 AND u.auth_id = $2
+       ) AS asignado`,
+      [id, authId]
+    );
+    return rows[0].asignado === true;
   }
 
   async findById(id: string, tenantId: string) {
@@ -52,7 +72,12 @@ export class SucursalRepository {
     return rows;
   }
 
-  async create(tenantId: string, data: SucursalData) {
+  /**
+   * Quien crea la sucursal queda asignado a ella, con el rol Administrador del
+   * tenant (o, si no existe, el que ya tenga en otra sucursal): sin asignación no
+   * podría editarla.
+   */
+  async create(tenantId: string, data: SucursalData, authId: string) {
     return withTransaction(async (client) => {
       // Solo puede haber una casa central por tenant.
       if (data.es_central) {
@@ -74,7 +99,20 @@ export class SucursalRepository {
           data.activo ?? true,
         ]
       );
-      return rows[0];
+      const sucursal = rows[0];
+      const { rows: asignacion } = await client.query(
+        `INSERT INTO public.usuario_sucursal (usuario_id, sucursal_id, id_rol)
+         SELECT u.id, $2, COALESCE(
+           (SELECT r.id FROM public.rol r WHERE r.tenant_id = u.tenant_id AND r.nombre = 'Administrador' LIMIT 1),
+           (SELECT us.id_rol FROM public.usuario_sucursal us WHERE us.usuario_id = u.id LIMIT 1)
+         )
+         FROM public.usuario u
+         WHERE u.auth_id = $1 AND u.tenant_id = $3
+         RETURNING id`,
+        [authId, sucursal.id, tenantId]
+      );
+      if (!asignacion[0]) throw new Error('No se pudo asignar la sucursal al usuario que la crea.');
+      return { ...sucursal, asignado: true };
     });
   }
 

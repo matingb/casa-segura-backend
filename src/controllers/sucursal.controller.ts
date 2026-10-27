@@ -4,7 +4,7 @@ import { SucursalData } from '../repositories/sucursal.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse } from '../utils/response';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
 
 const service = new SucursalService();
 
@@ -14,6 +14,10 @@ interface SucursalQuery {
 }
 
 function manejarError(error: unknown, res: Response, contexto: string) {
+  if (error instanceof CatalogoError) {
+    res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+    return;
+  }
   if (error instanceof BusinessError) {
     res.status(400).json(errorResponse(error.message));
     return;
@@ -39,7 +43,7 @@ export class SucursalController {
   getAll = async (req: TypedRequestQuery<SucursalQuery>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const data = await service.getAll(tenantId, req.query.todas !== 'true');
+      const data = await service.getAll(tenantId, req.user!.id, req.query.todas !== 'true');
       res.status(200).json(successResponse(data));
     } catch (error: unknown) {
       manejarError(error, res, 'getAll');
@@ -49,7 +53,7 @@ export class SucursalController {
   create = async (req: TypedRequestBody<SucursalData>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const sucursal = await service.create(tenantId, req.body);
+      const sucursal = await service.create(tenantId, req.body, req.user!.id);
       res.status(201).json(successResponse(sucursal));
     } catch (error: unknown) {
       manejarError(error, res, 'create');
@@ -62,7 +66,7 @@ export class SucursalController {
   ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const sucursal = await service.update(req.params.id, tenantId, req.body);
+      const sucursal = await service.update(req.params.id, tenantId, req.body, req.user!.id);
       if (!sucursal) {
         res.status(404).json(errorResponse('Sucursal no encontrada'));
         return;
@@ -76,7 +80,7 @@ export class SucursalController {
   delete = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const sucursal = await service.desactivar(req.params.id, tenantId);
+      const sucursal = await service.desactivar(req.params.id, tenantId, req.user!.id);
       if (!sucursal) {
         res.status(404).json(errorResponse('Sucursal no encontrada'));
         return;

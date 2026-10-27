@@ -10,34 +10,36 @@ vi.mock('../repositories/cotizacion.repository');
 describe('SucursalService', () => {
   let service: SucursalService;
   const TENANT = 'tenant-1';
+  const AUTH = 'auth-1';
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: null, cotizacion_version: '0', actualizada_at: null });
     service = new SucursalService();
     vi.mocked(SucursalRepository.prototype.contarActivas).mockResolvedValue(3);
+    vi.mocked(SucursalRepository.prototype.estaAsignado).mockResolvedValue(true);
   });
 
   describe('create', () => {
     it('impide cargar un dólar por sucursal cuando existe referencia central', async () => {
       vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: '1200.000000', cotizacion_version: '1', actualizada_at: null });
-      await expect(service.create(TENANT, { nombre: 'Sur', valor_dolar: 1300 })).rejects.toThrow('El dólar se configura para toda la empresa');
+      await expect(service.create(TENANT, { nombre: 'Sur', valor_dolar: 1300 }, AUTH)).rejects.toThrow('El dólar se configura para toda la empresa');
       expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
     });
     it('crea con los datos validados', async () => {
       vi.mocked(SucursalRepository.prototype.create).mockResolvedValue({ id: 's1' } as any);
 
-      await service.create(TENANT, { nombre: 'Sucursal Sur', valor_dolar: 1200, descuento: 5 });
+      await service.create(TENANT, { nombre: 'Sucursal Sur', valor_dolar: 1200, descuento: 5 }, AUTH);
 
       expect(SucursalRepository.prototype.create).toHaveBeenCalledWith(TENANT, {
         nombre: 'Sucursal Sur',
         valor_dolar: 1200,
         descuento: 5,
-      });
+      }, AUTH);
     });
 
     it('rechaza nombre vacío', async () => {
-      await expect(service.create(TENANT, { nombre: '   ' })).rejects.toThrow(
+      await expect(service.create(TENANT, { nombre: '   ' }, AUTH)).rejects.toThrow(
         'El nombre de la sucursal es obligatorio.'
       );
       expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
@@ -45,13 +47,13 @@ describe('SucursalService', () => {
 
     it('rechaza un valor del dólar negativo', async () => {
       await expect(
-        service.create(TENANT, { nombre: 'Sur', valor_dolar: -10 })
+        service.create(TENANT, { nombre: 'Sur', valor_dolar: -10 }, AUTH)
       ).rejects.toThrow('El valor del dólar debe ser un número positivo.');
     });
 
     it('rechaza un descuento fuera de rango', async () => {
       await expect(
-        service.create(TENANT, { nombre: 'Sur', descuento: 150 })
+        service.create(TENANT, { nombre: 'Sur', descuento: 150 }, AUTH)
       ).rejects.toThrow('El descuento debe ser un porcentaje entre 0 y 100.');
     });
 
@@ -59,7 +61,7 @@ describe('SucursalService', () => {
       vi.mocked(SucursalRepository.prototype.create).mockResolvedValue({ id: 's1' } as any);
 
       await expect(
-        service.create(TENANT, { nombre: 'Sur', descuento: null, valor_dolar: null })
+        service.create(TENANT, { nombre: 'Sur', descuento: null, valor_dolar: null }, AUTH)
       ).resolves.toBeTruthy();
     });
   });
@@ -68,7 +70,7 @@ describe('SucursalService', () => {
     it('si no existe: retorna null sin actualizar', async () => {
       vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue(null);
 
-      const r = await service.update('x', TENANT, { nombre: 'Nueva' });
+      const r = await service.update('x', TENANT, { nombre: 'Nueva' }, AUTH);
 
       expect(r).toBeNull();
       expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
@@ -78,9 +80,31 @@ describe('SucursalService', () => {
       vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: true } as any);
       vi.mocked(SucursalRepository.prototype.update).mockResolvedValue({ id: 's1' } as any);
 
-      await service.update('s1', TENANT, { descuento: 8 });
+      await service.update('s1', TENANT, { descuento: 8 }, AUTH);
 
       expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { descuento: 8 });
+    });
+
+    it('rechaza con 403 si el usuario no está asignado a la sucursal', async () => {
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: true } as any);
+      vi.mocked(SucursalRepository.prototype.estaAsignado).mockResolvedValue(false);
+
+      await expect(service.update('s1', TENANT, { descuento: 8 }, AUTH)).rejects.toMatchObject({
+        status: 403,
+        code: 'SUCURSAL_NO_ASIGNADA',
+      });
+      expect(SucursalRepository.prototype.estaAsignado).toHaveBeenCalledWith('s1', AUTH);
+      expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
+    });
+
+    it('reactivar también exige estar asignado', async () => {
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: false } as any);
+      vi.mocked(SucursalRepository.prototype.estaAsignado).mockResolvedValue(false);
+
+      await expect(service.update('s1', TENANT, { activo: true }, AUTH)).rejects.toThrow(
+        'No estás asignado a esta sucursal'
+      );
+      expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
     });
 
     it('reactivar no pasa por las reglas de baja', async () => {
@@ -91,7 +115,7 @@ describe('SucursalService', () => {
       } as any);
       vi.mocked(SucursalRepository.prototype.update).mockResolvedValue({ id: 's1' } as any);
 
-      await expect(service.update('s1', TENANT, { activo: true })).resolves.toBeTruthy();
+      await expect(service.update('s1', TENANT, { activo: true }, AUTH)).resolves.toBeTruthy();
     });
 
     it('desactivar por update respeta la regla de la casa central', async () => {
@@ -101,7 +125,7 @@ describe('SucursalService', () => {
         es_central: true,
       } as any);
 
-      await expect(service.update('s1', TENANT, { activo: false })).rejects.toThrow(
+      await expect(service.update('s1', TENANT, { activo: false }, AUTH)).rejects.toThrow(
         'No se puede dar de baja la casa central. Designá otra sucursal como central primero.'
       );
       expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
@@ -117,9 +141,21 @@ describe('SucursalService', () => {
       } as any);
       vi.mocked(SucursalRepository.prototype.desactivar).mockResolvedValue({ id: 's2', activo: false } as any);
 
-      const r = await service.desactivar('s2', TENANT);
+      const r = await service.desactivar('s2', TENANT, AUTH);
 
       expect(r).toMatchObject({ activo: false });
+    });
+
+    it('no permite dar de baja una sucursal a la que no está asignado', async () => {
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({
+        id: 's2',
+        activo: true,
+        es_central: false,
+      } as any);
+      vi.mocked(SucursalRepository.prototype.estaAsignado).mockResolvedValue(false);
+
+      await expect(service.desactivar('s2', TENANT, AUTH)).rejects.toMatchObject({ status: 403 });
+      expect(SucursalRepository.prototype.desactivar).not.toHaveBeenCalled();
     });
 
     it('no permite dar de baja la casa central', async () => {
@@ -129,7 +165,7 @@ describe('SucursalService', () => {
         es_central: true,
       } as any);
 
-      await expect(service.desactivar('s1', TENANT)).rejects.toThrow(BusinessError);
+      await expect(service.desactivar('s1', TENANT, AUTH)).rejects.toThrow(BusinessError);
       expect(SucursalRepository.prototype.desactivar).not.toHaveBeenCalled();
     });
 
@@ -141,7 +177,7 @@ describe('SucursalService', () => {
       } as any);
       vi.mocked(SucursalRepository.prototype.contarActivas).mockResolvedValue(1);
 
-      await expect(service.desactivar('s2', TENANT)).rejects.toThrow(
+      await expect(service.desactivar('s2', TENANT, AUTH)).rejects.toThrow(
         'No se puede dar de baja la única sucursal activa.'
       );
     });
@@ -153,7 +189,7 @@ describe('SucursalService', () => {
         es_central: false,
       } as any);
 
-      const r = await service.desactivar('s3', TENANT);
+      const r = await service.desactivar('s3', TENANT, AUTH);
 
       expect(r).toMatchObject({ activo: false });
       expect(SucursalRepository.prototype.desactivar).not.toHaveBeenCalled();
@@ -162,7 +198,7 @@ describe('SucursalService', () => {
     it('si no existe: retorna null', async () => {
       vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue(null);
 
-      expect(await service.desactivar('x', TENANT)).toBeNull();
+      expect(await service.desactivar('x', TENANT, AUTH)).toBeNull();
     });
   });
 });

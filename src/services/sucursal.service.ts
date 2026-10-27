@@ -1,12 +1,12 @@
 import { SucursalRepository, SucursalData } from '../repositories/sucursal.repository';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
 
 export class SucursalService {
   private repo = new SucursalRepository();
 
-  async getAll(tenantId: string, soloActivas = false) {
-    return this.repo.findAll(tenantId, soloActivas);
+  async getAll(tenantId: string, authId: string, soloActivas = false) {
+    return this.repo.findAll(tenantId, authId, soloActivas);
   }
 
   async getByUser(authId: string, tenantId: string) {
@@ -17,15 +17,16 @@ export class SucursalService {
     return this.repo.findById(id, tenantId);
   }
 
-  async create(tenantId: string, data: SucursalData) {
+  async create(tenantId: string, data: SucursalData, authId: string) {
     this.validar(data);
     if (data.valor_dolar != null) await this.validarDolarHeredado(tenantId, data);
-    return this.repo.create(tenantId, data);
+    return this.repo.create(tenantId, data, authId);
   }
 
-  async update(id: string, tenantId: string, data: Partial<SucursalData>) {
+  async update(id: string, tenantId: string, data: Partial<SucursalData>, authId: string) {
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
+    await this.verificarAsignado(id, authId);
     this.validar(data);
 
     if (data.valor_dolar !== undefined && (data.valor_dolar === null ? sucursal.valor_dolar != null : Number(data.valor_dolar) !== Number(sucursal.valor_dolar))) {
@@ -39,9 +40,10 @@ export class SucursalService {
     return this.repo.update(id, tenantId, data);
   }
 
-  async desactivar(id: string, tenantId: string) {
+  async desactivar(id: string, tenantId: string, authId: string) {
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
+    await this.verificarAsignado(id, authId);
     if (!sucursal.activo) return sucursal;
 
     await this.verificarPuedeDesactivar(id, tenantId, sucursal);
@@ -52,6 +54,13 @@ export class SucursalService {
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     return this.repo.resumenUso(id);
+  }
+
+  /** Solo quien está asignado a una sucursal puede editarla, darla de baja o reactivarla. */
+  private async verificarAsignado(id: string, authId: string) {
+    if (!(await this.repo.estaAsignado(id, authId))) {
+      throw new CatalogoError('No estás asignado a esta sucursal, por eso no podés modificarla.', 'SUCURSAL_NO_ASIGNADA', 403);
+    }
   }
 
   /**
