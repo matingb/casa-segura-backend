@@ -11,6 +11,10 @@ export class TipoService {
     return this.repo.create(tenantId, nombre);
   }
 
+  async rename(tenantId: string, id: string, nombre: string) {
+    return this.repo.rename(tenantId, id, nombre);
+  }
+
   async delete(tenantId: string, id: string) {
     return this.repo.delete(tenantId, id);
   }

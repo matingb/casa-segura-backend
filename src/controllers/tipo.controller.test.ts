@@ -117,4 +117,37 @@ describe('TipoController', () => {
       expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Delete error' });
     });
   });
+  describe('update', () => {
+    it('debería retornar 400 si nombre está vacío', async () => {
+      req.params = { id: 'x1' };
+      req.body = { nombre: '  ' };
+
+      await controller.update(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(TipoService.prototype.rename).not.toHaveBeenCalled();
+    });
+
+    it('debería renombrar con el nombre sin espacios sobrantes', async () => {
+      req.params = { id: 'x1' };
+      req.body = { nombre: '  Nuevo nombre ' };
+      vi.mocked(TipoService.prototype.rename).mockResolvedValue({ id: 'x1', nombre: 'Nuevo nombre' } as any);
+
+      await controller.update(req, res as Response);
+
+      expect(TipoService.prototype.rename).toHaveBeenCalledWith(TENANT_ID, 'x1', 'Nuevo nombre');
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('debería retornar 404 si no existe en el tenant', async () => {
+      req.params = { id: 'x1' };
+      req.body = { nombre: 'Otro' };
+      vi.mocked(TipoService.prototype.rename).mockResolvedValue(null);
+
+      await controller.update(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Tipo no encontrado' });
+    });
+  });
 });

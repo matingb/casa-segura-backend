@@ -58,6 +58,17 @@ export class TipoRepository {
     return rows[0];
   }
 
+  async rename(tenantId: string, id: string, nombre: string) {
+    const query = `
+      UPDATE public.tipo
+      SET nombre = $3, updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $2
+      RETURNING id, tenant_id, nombre, descuento_general, created_at, updated_at
+    `;
+    const { rows } = await pool.query(query, [id, tenantId, nombre]);
+    return rows[0] ?? null;
+  }
+
   async delete(tenantId: string, id: string) {
     const query = `
       DELETE FROM public.tipo

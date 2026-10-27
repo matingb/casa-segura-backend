@@ -47,6 +47,28 @@ export class SubtipoController {
     }
   };
 
+  /** Renombra la subcategoría; sigue en la misma categoría. */
+  update = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
+    try {
+      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const { nombre } = req.body ?? {};
+      if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
+        res.status(400).json(errorResponse('El campo "nombre" es requerido'));
+        return;
+      }
+      const data = await service.rename(tenantId, req.params.id, nombre.trim());
+      if (!data) {
+        res.status(404).json(errorResponse('Subtipo no encontrado'));
+        return;
+      }
+      res.status(200).json({ status: 'success', data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Internal server error';
+      console.error('Error in SubtipoController.update:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
   delete = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);

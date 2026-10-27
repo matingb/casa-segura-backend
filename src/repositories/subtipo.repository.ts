@@ -39,6 +39,18 @@ export class SubtipoRepository {
     return rows[0] ?? null;
   }
 
+  async rename(tenantId: string, id: string, nombre: string) {
+    const query = `
+      UPDATE public.subtipo s
+      SET nombre = $3, updated_at = NOW()
+      FROM public.tipo t
+      WHERE s.id = $1 AND s.tipo_id = t.id AND t.tenant_id = $2
+      RETURNING s.id, s.tipo_id, s.nombre, s.created_at, s.updated_at
+    `;
+    const { rows } = await pool.query(query, [id, tenantId, nombre]);
+    return rows[0] ?? null;
+  }
+
   async delete(tenantId: string, id: string) {
     const query = `
       DELETE FROM public.subtipo s
