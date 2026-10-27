@@ -284,8 +284,8 @@ export class ProductoSucursalRepository {
     const { rows } = await (client ?? pool).query(
       `INSERT INTO public.producto_sucursal
         (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado, moneda_precio_venta, precio_referencia_confirmada,
-         moneda_costo_reposicion, costo_reposicion_usd)
-       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15
+         moneda_costo_reposicion, costo_reposicion_usd, cantidad_disponible)
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12, $13, $14, $15, $16
        FROM public.producto p
        JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
        WHERE p.id = $1 AND p.tenant_id = $11 AND p.deleted_at IS NULL
@@ -306,6 +306,7 @@ export class ProductoSucursalRepository {
         data.precio_referencia_confirmada ?? true,
         data.moneda_costo_reposicion ?? 'ARS',
         data.costo_reposicion_usd ?? null,
+        data.cantidad_disponible ?? 0,
       ]
     );
     return rows[0];

@@ -70,6 +70,24 @@ export function validarDescuentoProducto(descuento: unknown) {
   }
 }
 
+/**
+ * Las cantidades se cargan a mano (al crear o editar el stock): tienen que ser
+ * enteros no negativos. Si no vienen, no se tocan.
+ */
+export function validarCantidades(data: Partial<Pick<ProductoSucursalData, 'cantidad_disponible' | 'cantidad_reservada'>>) {
+  const campos = [
+    ['cantidad_disponible', 'La cantidad disponible'],
+    ['cantidad_reservada', 'La cantidad reservada'],
+  ] as const;
+  for (const [campo, etiqueta] of campos) {
+    if (!(campo in data)) continue;
+    const valor = data[campo] as unknown;
+    if (valor === null || valor === undefined || !Number.isInteger(Number(valor)) || Number(valor) < 0 || (typeof valor === 'string' && valor.trim() === '')) {
+      throw new BusinessError(`${etiqueta} debe ser un número entero mayor o igual a 0.`);
+    }
+  }
+}
+
 type Monto = { ars: unknown; usd: unknown; moneda: unknown };
 
 function margenEntre(costo: Monto, precio: Monto, margen: unknown) {
@@ -146,6 +164,7 @@ export class ProductoSucursalService {
 
   async create(tenantId: string, data: ProductoSucursalData) {
     validarDescuentoProducto(data.descuento);
+    validarCantidades(data);
     data = normalizarMontos(data);
     if (tieneMontos(data)) {
       const item = await escribirConMontos(tenantId, montosDe(data), async (client, resueltos) => {
@@ -173,6 +192,7 @@ export class ProductoSucursalService {
     if ('descuento' in data) {
       validarDescuentoProducto(data.descuento);
     }
+    validarCantidades(data);
     data = normalizarMontos(data);
     // Costo y precio guardados, resueltos por la vista con la cotización actual.
     const costoActual: Monto = { ars: actual.costo_reposicion_ars_resuelto ?? actual.costo_reposicion, usd: actual.costo_reposicion_usd, moneda: actual.moneda_costo_reposicion };

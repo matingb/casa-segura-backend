@@ -168,17 +168,6 @@ export class ProductoSucursalController {
   ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-
-      // Corrección manual de stock: deben ser enteros no negativos.
-      for (const campo of ['cantidad_disponible', 'cantidad_reservada'] as const) {
-        const valor = req.body[campo];
-        if (valor === undefined) continue;
-        if (!Number.isInteger(valor) || valor < 0) {
-          res.status(400).json(errorResponse(`El campo "${campo}" debe ser un número entero mayor o igual a 0`));
-          return;
-        }
-      }
-
       const item = await service.update(req.params.id, req.body, tenantId);
       if (!item) {
         res.status(404).json(errorResponse('Stock no encontrado'));

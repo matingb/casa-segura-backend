@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BusinessError } from '../utils/errors';
-import { validarMargenMinimoConfiguracion } from './producto-sucursal.service';
+import { validarCantidades, validarMargenMinimoConfiguracion } from './producto-sucursal.service';
 
 describe('validarMargenMinimoConfiguracion', () => {
   it('acepta un precio de venta que alcanza el margen configurado', () => {
@@ -38,5 +38,18 @@ describe('validarMargenMinimoConfiguracion con costo y precio en USD', () => {
       costo_reposicion: 12000, precio_venta_ars: 13200, margen_minimo: 10,
       costo_usd: '10.0000', precio_venta_usd_principal: '10.9999',
     })).toThrow(BusinessError);
+  });
+});
+
+describe('validarCantidades', () => {
+  it('acepta enteros no negativos y campos ausentes', () => {
+    expect(() => validarCantidades({ cantidad_disponible: 10, cantidad_reservada: 0 })).not.toThrow();
+    expect(() => validarCantidades({})).not.toThrow();
+  });
+
+  it('rechaza negativos, decimales y vacíos', () => {
+    expect(() => validarCantidades({ cantidad_disponible: -1 })).toThrow('La cantidad disponible debe ser un número entero mayor o igual a 0.');
+    expect(() => validarCantidades({ cantidad_reservada: 1.5 })).toThrow('La cantidad reservada debe ser un número entero mayor o igual a 0.');
+    expect(() => validarCantidades({ cantidad_disponible: null as unknown as number })).toThrow(BusinessError);
   });
 });
