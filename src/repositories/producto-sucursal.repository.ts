@@ -77,20 +77,31 @@ export interface ProductoSucursalData {
 }
 
 export class ProductoSucursalRepository {
-  async findAll(tenantId: string, operativo = false) {
+  async findAll(tenantId: string, operativo = false, sucursalIds?: string[], sucursalId?: string) {
+    if (sucursalIds && sucursalIds.length === 0) return [];
+    const params: unknown[] = [tenantId];
+    const alcanceSql = sucursalIds ? (params.push(sucursalIds), `AND ps.sucursal_id = ANY($${params.length}::uuid[])`) : '';
+    const sucursalSql = sucursalId ? (params.push(sucursalId), `AND ps.sucursal_id = $${params.length}`) : '';
     const query = `
       ${JOIN_QUERY}
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+      ${alcanceSql} ${sucursalSql}
       ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''}
       ORDER BY s.nombre, p.nombre
     `;
-    const { rows } = await pool.query(query, [tenantId]);
+    const { rows } = await pool.query(query, params);
     return rows;
   }
 
-  async findPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string, operativo = false) {
+  async findPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string, operativo = false, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return { items: [], hasMore: false };
     const sentinel = getLimitSentinel(limit);
-    const params: unknown[] = [tenantId, sentinel, offset];
+    const params: unknown[] = [tenantId];
+    let alcanceClause = '';
+    if (sucursalIds) {
+      params.push(sucursalIds);
+      alcanceClause = `AND ps.sucursal_id = ANY($${params.length}::uuid[])`;
+    }
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -103,12 +114,15 @@ export class ProductoSucursalRepository {
       const idx = params.length;
       sucursalClause = `AND ps.sucursal_id = $${idx}`;
     }
+    params.push(sentinel, offset);
+    const limitIndex = params.length - 1;
+    const offsetIndex = params.length;
     const { rows } = await pool.query(
       `${JOIN_QUERY}
        WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
-       ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause}
+       ${alcanceClause} ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause}
        ORDER BY s.nombre, p.nombre
-       LIMIT $2 OFFSET $3`,
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       params
     );
     return sliceWithHasMore(rows, limit);
@@ -123,9 +137,16 @@ export class ProductoSucursalRepository {
     filtros?: ProductoSucursalFiltros,
     sortBy?: string,
     sortDir?: string,
-    operativo = false
+    operativo = false,
+    sucursalIds?: string[]
   ) {
+    if (sucursalIds && sucursalIds.length === 0) return { items: [], total: 0 };
     const params: unknown[] = [tenantId];
+    let alcanceClause = '';
+    if (sucursalIds) {
+      params.push(sucursalIds);
+      alcanceClause = `AND ps.sucursal_id = ANY($${params.length}::uuid[])`;
+    }
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -179,7 +200,7 @@ export class ProductoSucursalRepository {
       JOIN public.sucursal s ON s.id = ps.sucursal_id
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
-      ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause} ${filtersSql}
+      ${alcanceClause} ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
@@ -202,7 +223,7 @@ export class ProductoSucursalRepository {
       JOIN public.sucursal  s ON s.id = ps.sucursal_id
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
-      ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause} ${filtersSql}
+      ${alcanceClause} ${operativo ? 'AND p.activo = TRUE AND ps.habilitado = TRUE' : ''} ${searchClause} ${sucursalClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -218,7 +239,10 @@ export class ProductoSucursalRepository {
     };
   }
 
-  async findValoresUnicos(tenantId: string, campo: string): Promise<string[]> {
+  async findValoresUnicos(tenantId: string, campo: string, sucursalIds?: string[]): Promise<string[]> {
+    if (sucursalIds && sucursalIds.length === 0) return [];
+    const alcance = sucursalIds ? 'AND ps.sucursal_id = ANY($2::uuid[])' : '';
+    const params: unknown[] = sucursalIds ? [tenantId, sucursalIds] : [tenantId];
     const columnasPermitidas: Record<string, string> = {
       codigo: 'p.codigo',
       nombre: 'p.nombre',
@@ -232,9 +256,9 @@ export class ProductoSucursalRepository {
       FROM public.producto_sucursal_catalogo ps
       JOIN public.producto_catalogo p ON p.id = ps.producto_id
          JOIN public.subtipo sub ON sub.id = p.subtipo_id
-         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND sub.nombre IS NOT NULL
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND sub.nombre IS NOT NULL ${alcance}
          ORDER BY valor`,
-        [tenantId]
+        params
       );
       return rows.map((r) => r.valor);
     }
@@ -245,15 +269,21 @@ export class ProductoSucursalRepository {
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
          JOIN public.sucursal s ON s.id = ps.sucursal_id
-         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND s.nombre IS NOT NULL
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND s.nombre IS NOT NULL ${alcance}
          ORDER BY valor`,
-        [tenantId]
+        params
       );
       return rows.map((r) => r.valor);
     }
 
     if (campo === 'estado') {
-      return ['Habilitado', 'Deshabilitado'];
+      const { rows } = await pool.query(
+        `SELECT DISTINCT CASE WHEN ps.habilitado THEN 'Habilitado' ELSE 'Deshabilitado' END AS valor
+         FROM public.producto_sucursal ps JOIN public.producto p ON p.id = ps.producto_id
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL ${alcance}
+         ORDER BY valor`, params
+      );
+      return rows.map((r) => r.valor);
     }
 
     const columna = columnasPermitidas[campo];
@@ -263,24 +293,27 @@ export class ProductoSucursalRepository {
       `SELECT DISTINCT ${columna} AS valor
        FROM public.producto_sucursal ps
        JOIN public.producto p ON p.id = ps.producto_id
-       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND ${columna} IS NOT NULL AND ${columna} <> ''
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL AND ${columna} IS NOT NULL AND ${columna} <> '' ${alcance}
        ORDER BY valor`,
-      [tenantId]
+      params
     );
     return rows.map((r) => r.valor);
   }
 
-  async findById(id: string, tenantId: string, client?: PoolClient) {
+  async findById(id: string, tenantId: string, client?: PoolClient, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return null;
     const query = `
       ${JOIN_QUERY}
       WHERE ps.id = $1 AND p.tenant_id = $2 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
+        AND ($3::uuid[] IS NULL OR ps.sucursal_id = ANY($3::uuid[]))
       LIMIT 1
     `;
-    const { rows } = await (client ?? pool).query(query, [id, tenantId]);
+    const { rows } = await (client ?? pool).query(query, [id, tenantId, sucursalIds ?? null]);
     return rows[0] ?? null;
   }
 
-  async create(data: ProductoSucursalData, tenantId: string, client?: PoolClient) {
+  async create(data: ProductoSucursalData, tenantId: string, client?: PoolClient, sucursalIds?: string[]) {
+    if (sucursalIds && !sucursalIds.includes(data.sucursal_id)) return null;
     const { rows } = await (client ?? pool).query(
       `INSERT INTO public.producto_sucursal
         (producto_id, sucursal_id, costo_reposicion, precio_venta_ars, precio_venta_usd, iva, margen_minimo, descuento, stock_minimo, habilitado, moneda_precio_venta, precio_referencia_confirmada,
@@ -289,6 +322,7 @@ export class ProductoSucursalRepository {
        FROM public.producto p
        JOIN public.sucursal s ON s.id = $2 AND s.tenant_id = p.tenant_id
        WHERE p.id = $1 AND p.tenant_id = $11 AND p.deleted_at IS NULL
+         AND ($17::uuid[] IS NULL OR s.id = ANY($17::uuid[])) AND s.activo = TRUE
        RETURNING *`,
       [
         data.producto_id,
@@ -307,12 +341,14 @@ export class ProductoSucursalRepository {
         data.moneda_costo_reposicion ?? 'ARS',
         data.costo_reposicion_usd ?? null,
         data.cantidad_disponible ?? 0,
+        sucursalIds ?? null,
       ]
     );
     return rows[0];
   }
 
-  async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string, client?: PoolClient) {
+  async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string, client?: PoolClient, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return null;
     const fields = [
       'costo_reposicion',
       'costo_reposicion_usd',
@@ -343,7 +379,7 @@ export class ProductoSucursalRepository {
 
     if (updates.length === 0) return null;
 
-    values.push(id, tenantId);
+    values.push(id, tenantId, sucursalIds ?? null);
 
     const { rows } = await (client ?? pool).query(
       `UPDATE public.producto_sucursal ps
@@ -352,21 +388,24 @@ export class ProductoSucursalRepository {
        WHERE ps.id = $${idx++}
          AND ps.producto_id = p.id
          AND p.tenant_id = $${idx} AND ps.deleted_at IS NULL
+         AND ($${idx + 1}::uuid[] IS NULL OR ps.sucursal_id = ANY($${idx + 1}::uuid[]))
        RETURNING ps.*`,
       values
     );
     return rows[0] ?? null;
   }
 
-  async softDelete(id: string, tenantId: string) {
+  async softDelete(id: string, tenantId: string, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return null;
     return withTransaction(async (client) => {
       const { rows } = await client.query(
         `SELECT ps.id, ps.cantidad_disponible, ps.cantidad_reservada
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
          WHERE ps.id = $1 AND p.tenant_id = $2 AND ps.deleted_at IS NULL
+           AND ($3::uuid[] IS NULL OR ps.sucursal_id = ANY($3::uuid[]))
          FOR UPDATE`,
-        [id, tenantId]
+        [id, tenantId, sucursalIds ?? null]
       );
       const item = rows[0];
       if (!item) return null;

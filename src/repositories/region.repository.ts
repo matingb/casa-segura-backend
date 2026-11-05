@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { pool } from '../config/db';
 import { withTransaction } from '../utils/db-transaction';
+import { CatalogoError } from '../utils/errors';
 
 export interface RegionData {
   nombre: string;
@@ -20,6 +21,8 @@ export interface RegionRow {
   sucursales: { id: string; nombre: string }[];
   created_at: string;
   updated_at: string;
+  puede_modificar?: boolean;
+  motivo_bloqueo?: 'REGION_COMPARTIDA_FUERA_DE_ALCANCE' | null;
 }
 
 export interface ClienteRegionRow {
@@ -45,8 +48,38 @@ const SELECT_REGION = `
   FROM public.region r
 `;
 
+const selectRegionEnAlcance = (scopeParam: string) => `
+  SELECT r.*,
+         COALESCE((
+           SELECT json_agg(json_build_object('id', s.id, 'nombre', s.nombre) ORDER BY s.nombre)
+           FROM public.region_sucursal rs
+           JOIN public.sucursal s ON s.id = rs.sucursal_id
+           WHERE rs.region_id = r.id AND rs.sucursal_id = ANY(${scopeParam}::uuid[])
+         ), '[]'::json) AS sucursales,
+         NOT EXISTS (
+           SELECT 1 FROM public.region_sucursal rs
+           WHERE rs.region_id = r.id AND NOT (rs.sucursal_id = ANY(${scopeParam}::uuid[]))
+         ) AS puede_modificar,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM public.region_sucursal rs
+           WHERE rs.region_id = r.id AND NOT (rs.sucursal_id = ANY(${scopeParam}::uuid[]))
+         ) THEN 'REGION_COMPARTIDA_FUERA_DE_ALCANCE' ELSE NULL END AS motivo_bloqueo
+  FROM public.region r
+`;
+
 export class RegionRepository {
-  async findAll(tenantId: string, soloActivas = false): Promise<RegionRow[]> {
+  async findAll(tenantId: string, soloActivas = false, sucursalIds?: string[]): Promise<RegionRow[]> {
+    if (sucursalIds && sucursalIds.length === 0) return [];
+    if (sucursalIds) {
+      const { rows } = await pool.query(
+        `${selectRegionEnAlcance('$2')}
+         WHERE r.tenant_id = $1
+           AND EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id AND rs.sucursal_id = ANY($2::uuid[]))
+           ${soloActivas ? 'AND r.activo = TRUE' : ''}
+         ORDER BY r.nombre ASC`, [tenantId, sucursalIds]
+      );
+      return rows;
+    }
     const { rows } = await pool.query(
       `${SELECT_REGION}
        WHERE r.tenant_id = $1 ${soloActivas ? 'AND r.activo = TRUE' : ''}
@@ -57,7 +90,18 @@ export class RegionRepository {
   }
 
   /** Regiones que incluyen el punto de venta (para asignarle una a un cliente). */
-  async findBySucursal(sucursalId: string, tenantId: string, soloActivas = false): Promise<RegionRow[]> {
+  async findBySucursal(sucursalId: string, tenantId: string, soloActivas = false, sucursalIds?: string[]): Promise<RegionRow[]> {
+    if (sucursalIds && !sucursalIds.includes(sucursalId)) return [];
+    if (sucursalIds) {
+      const { rows } = await pool.query(
+        `${selectRegionEnAlcance('$3')}
+         WHERE r.tenant_id = $2
+           AND EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id AND rs.sucursal_id = $1)
+           ${soloActivas ? 'AND r.activo = TRUE' : ''}
+         ORDER BY r.nombre ASC`, [sucursalId, tenantId, sucursalIds]
+      );
+      return rows;
+    }
     const { rows } = await pool.query(
       `${SELECT_REGION}
        WHERE r.tenant_id = $2
@@ -69,13 +113,33 @@ export class RegionRepository {
     return rows;
   }
 
-  async findById(id: string, tenantId: string): Promise<RegionRow | null> {
+  async findById(id: string, tenantId: string, sucursalIds?: string[]): Promise<RegionRow | null> {
+    if (sucursalIds && sucursalIds.length === 0) return null;
+    if (sucursalIds) {
+      const { rows } = await pool.query(
+        `${selectRegionEnAlcance('$3')}
+         WHERE r.id = $1 AND r.tenant_id = $2
+           AND EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id AND rs.sucursal_id = ANY($3::uuid[]))
+         LIMIT 1`, [id, tenantId, sucursalIds]
+      );
+      return rows[0] ?? null;
+    }
     const { rows } = await pool.query(`${SELECT_REGION} WHERE r.id = $1 AND r.tenant_id = $2 LIMIT 1`, [id, tenantId]);
     return rows[0] ?? null;
   }
 
-  async create(tenantId: string, data: RegionData): Promise<RegionRow> {
+  async create(tenantId: string, data: RegionData, sucursalIdsPermitidas?: string[]): Promise<RegionRow> {
     const id = await withTransaction(async (client) => {
+      if (sucursalIdsPermitidas && data.sucursal_ids.some((sucursalId) => !sucursalIdsPermitidas.includes(sucursalId))) {
+        throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+      }
+      const { rows: sucursalesValidas } = await client.query(
+        `SELECT id FROM public.sucursal WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND activo = TRUE`,
+        [data.sucursal_ids, tenantId]
+      );
+      if (sucursalesValidas.length !== data.sucursal_ids.length) {
+        throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+      }
       const { rows } = await client.query(
         `INSERT INTO public.region (tenant_id, nombre, descuento, activo)
          VALUES ($1, $2, $3, $4)
@@ -85,13 +149,14 @@ export class RegionRepository {
       await this.sincronizarSucursales(client, rows[0].id, data.sucursal_ids);
       return rows[0].id as string;
     });
-    return (await this.findById(id, tenantId))!;
+    return (await this.findById(id, tenantId, sucursalIdsPermitidas))!;
   }
 
   async update(
     id: string,
     tenantId: string,
-    data: Partial<Pick<RegionData, 'nombre' | 'descuento' | 'activo' | 'sucursal_ids'>>
+    data: Partial<Pick<RegionData, 'nombre' | 'descuento' | 'activo' | 'sucursal_ids'>>,
+    sucursalIdsPermitidas?: string[]
   ): Promise<RegionRow | null> {
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -115,6 +180,13 @@ export class RegionRepository {
     fields.push('updated_at = NOW()');
 
     const actualizada = await withTransaction(async (client) => {
+      if (sucursalIdsPermitidas) {
+        const editable = await this.validarAlcanceRegion(client, id, tenantId, sucursalIdsPermitidas);
+        if (!editable) return false;
+        if (data.sucursal_ids?.some((sucursalId) => !sucursalIdsPermitidas.includes(sucursalId))) {
+          throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+        }
+      }
       const { rows } = await client.query(
         `UPDATE public.region
          SET ${fields.join(', ')}
@@ -126,7 +198,25 @@ export class RegionRepository {
       if (data.sucursal_ids !== undefined) await this.sincronizarSucursales(client, id, data.sucursal_ids);
       return true;
     });
-    return actualizada ? this.findById(id, tenantId) : null;
+    return actualizada ? this.findById(id, tenantId, sucursalIdsPermitidas) : null;
+  }
+
+  private async validarAlcanceRegion(client: PoolClient, id: string, tenantId: string, sucursalIds: string[]) {
+    const { rows: region } = await client.query(
+      'SELECT id FROM public.region WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [id, tenantId]
+    );
+    if (!region[0]) return false;
+    const { rows: actuales } = await client.query(
+      'SELECT sucursal_id FROM public.region_sucursal WHERE region_id = $1 FOR UPDATE', [id]
+    );
+    const ids = actuales.map((row) => row.sucursal_id as string);
+    if (!ids.some((sucursalId) => sucursalIds.includes(sucursalId))) {
+      throw new CatalogoError('El recurso no está disponible.', 'RECURSO_NO_DISPONIBLE', 404);
+    }
+    if (ids.some((sucursalId) => !sucursalIds.includes(sucursalId))) {
+      throw new CatalogoError('La región incluye puntos de venta fuera de tu alcance.', 'REGION_COMPARTIDA_FUERA_DE_ALCANCE', 403);
+    }
+    return true;
   }
 
   /** Deja la región con exactamente estos puntos de venta. */
@@ -143,25 +233,26 @@ export class RegionRepository {
     );
   }
 
-  async desactivar(id: string, tenantId: string): Promise<RegionRow | null> {
-    const { rows } = await pool.query(
-      `UPDATE public.region
-       SET activo = FALSE, updated_at = NOW()
-       WHERE id = $1 AND tenant_id = $2
-       RETURNING id`,
-      [id, tenantId]
-    );
-    return rows[0] ? this.findById(id, tenantId) : null;
+  async desactivar(id: string, tenantId: string, sucursalIdsPermitidas?: string[]): Promise<RegionRow | null> {
+    const idActualizado = await withTransaction(async (client) => {
+      if (sucursalIdsPermitidas && !await this.validarAlcanceRegion(client, id, tenantId, sucursalIdsPermitidas)) return false;
+      const { rows } = await client.query(
+        `UPDATE public.region SET activo = FALSE, updated_at = NOW()
+         WHERE id = $1 AND tenant_id = $2 RETURNING id`, [id, tenantId]
+      );
+      return rows.length > 0;
+    });
+    return idActualizado ? this.findById(id, tenantId, sucursalIdsPermitidas) : null;
   }
 
-  async delete(id: string, tenantId: string): Promise<boolean> {
-    const query = `
-      DELETE FROM public.region
-      WHERE id = $1 AND tenant_id = $2
-      RETURNING id
-    `;
-    const { rows } = await pool.query(query, [id, tenantId]);
-    return rows.length > 0;
+  async delete(id: string, tenantId: string, sucursalIdsPermitidas?: string[]): Promise<boolean> {
+    return withTransaction(async (client) => {
+      if (sucursalIdsPermitidas && !await this.validarAlcanceRegion(client, id, tenantId, sucursalIdsPermitidas)) return false;
+      const { rows } = await client.query(
+        'DELETE FROM public.region WHERE id = $1 AND tenant_id = $2 RETURNING id', [id, tenantId]
+      );
+      return rows.length > 0;
+    });
   }
 
   /** Clientes que usan la región en cada uno de los puntos de venta indicados. */
@@ -178,9 +269,24 @@ export class RegionRepository {
     return rows;
   }
 
-  async sucursalesDelTenant(sucursalIds: string[], tenantId: string): Promise<number> {
+  async findSucursalIds(regionId: string, tenantId: string): Promise<string[] | null> {
+    const { rows: region } = await pool.query(
+      'SELECT id FROM public.region WHERE id = $1 AND tenant_id = $2 LIMIT 1', [regionId, tenantId]
+    );
+    if (!region[0]) return null;
     const { rows } = await pool.query(
-      'SELECT COUNT(*)::int AS total FROM public.sucursal WHERE id = ANY($1::uuid[]) AND tenant_id = $2',
+      `SELECT rs.sucursal_id FROM public.region_sucursal rs
+       JOIN public.sucursal s ON s.id = rs.sucursal_id AND s.tenant_id = $2
+       WHERE rs.region_id = $1`, [regionId, tenantId]
+    );
+    return rows.map((row) => row.sucursal_id as string);
+  }
+
+  async sucursalesDelTenant(sucursalIds: string[], tenantId: string, soloActivas = false): Promise<number> {
+    if (sucursalIds.length === 0) return 0;
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM public.sucursal
+       WHERE id = ANY($1::uuid[]) AND tenant_id = $2 ${soloActivas ? 'AND activo = TRUE' : ''}`,
       [sucursalIds, tenantId]
     );
     return rows[0].total;
@@ -206,7 +312,8 @@ export class RegionRepository {
 
   // --- Operaciones de asignación de cliente_region ---
 
-  async findRegionesPorCliente(clienteId: string, tenantId: string): Promise<ClienteRegionRow[]> {
+  async findRegionesPorCliente(clienteId: string, tenantId: string, sucursalIds?: string[]): Promise<ClienteRegionRow[]> {
+    if (sucursalIds && sucursalIds.length === 0) return [];
     const query = `
       SELECT
         cr.id,
@@ -224,9 +331,10 @@ export class RegionRepository {
       WHERE cr.cliente_id = $1
         AND c.tenant_id = $2
         AND r.tenant_id = $2
+        AND ($3::uuid[] IS NULL OR cr.sucursal_id = ANY($3::uuid[]))
       ORDER BY s.nombre ASC
     `;
-    const { rows } = await pool.query(query, [clienteId, tenantId]);
+    const { rows } = await pool.query(query, [clienteId, tenantId, sucursalIds ?? null]);
     return rows;
   }
 
@@ -234,7 +342,8 @@ export class RegionRepository {
     clienteId: string,
     sucursalId: string,
     regionId: string,
-    tenantId: string
+    tenantId: string,
+    sucursalIdsPermitidas?: string[]
   ): Promise<ClienteRegionRow | null> {
     // Validar pertenencia del cliente y de la región al tenant
     const query = `
@@ -253,7 +362,7 @@ export class RegionRepository {
     if (rows.length === 0) return null;
 
     // Retornar con nombres
-    const asignaciones = await this.findRegionesPorCliente(clienteId, tenantId);
+    const asignaciones = await this.findRegionesPorCliente(clienteId, tenantId, sucursalIdsPermitidas);
     return asignaciones.find((a) => a.sucursal_id === sucursalId) ?? null;
   }
 

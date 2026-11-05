@@ -17,19 +17,33 @@ export interface AsignacionUsuario {
 
 export class SucursalRepository {
   /** `asignado` indica si el usuario autenticado está asignado a cada sucursal. */
-  async findAll(tenantId: string, authId: string, soloActivas = false) {
+  async findAll(tenantId: string, authId: string, soloActivas = false, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return [];
     const query = `
       SELECT s.*,
              EXISTS (
                SELECT 1 FROM public.usuario_sucursal us
                JOIN public.usuario u ON u.id = us.usuario_id
-               WHERE us.sucursal_id = s.id AND u.auth_id = $2 AND us.activo = TRUE
+               WHERE us.sucursal_id = s.id AND u.auth_id = $2 AND u.activo = TRUE
+                 AND u.tenant_id = s.tenant_id AND us.activo = TRUE
              ) AS asignado
       FROM public.sucursal s
-      WHERE s.tenant_id = $1 ${soloActivas ? 'AND s.activo = TRUE' : ''}
+      WHERE s.tenant_id = $1
+        AND ($3::uuid[] IS NULL OR s.id = ANY($3::uuid[]))
+        ${soloActivas ? 'AND s.activo = TRUE' : ''}
       ORDER BY s.es_central DESC, s.nombre
     `;
-    const { rows } = await pool.query(query, [tenantId, authId]);
+    const { rows } = await pool.query(query, [tenantId, authId, sucursalIds ?? null]);
+    return rows;
+  }
+
+  async findReferenciasGlobales(tenantId: string) {
+    const { rows } = await pool.query(
+      `SELECT id, nombre, activo, es_central
+       FROM public.sucursal WHERE tenant_id = $1
+       ORDER BY es_central DESC, nombre`,
+      [tenantId]
+    );
     return rows;
   }
 
@@ -39,7 +53,7 @@ export class SucursalRepository {
       `SELECT EXISTS (
          SELECT 1 FROM public.usuario_sucursal us
          JOIN public.usuario u ON u.id = us.usuario_id
-         WHERE us.sucursal_id = $1 AND u.auth_id = $2 AND us.activo = TRUE
+         WHERE us.sucursal_id = $1 AND u.auth_id = $2 AND u.activo = TRUE AND us.activo = TRUE
        ) AS asignado`,
       [id, authId]
     );
@@ -74,6 +88,8 @@ export class SucursalRepository {
       JOIN public.rol r               ON r.id = us.id_rol
       WHERE u.auth_id = $1
         AND s.tenant_id = $2
+        AND u.tenant_id = s.tenant_id
+        AND u.activo = TRUE
         AND s.activo = TRUE
         AND us.activo = TRUE
       ORDER BY s.es_central DESC, s.nombre

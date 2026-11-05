@@ -4,6 +4,7 @@ import { columnasMonto, escribirConMontos, MontosResueltos, validarContratoPreci
 import { Dinero } from '../utils/moneda';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
 import { withTransaction } from '../utils/db-transaction';
+import { exigirSucursal, SucursalAlcance } from './sucursal-alcance.service';
 
 const CAMPOS_PRECIO = ['precio_venta_ars', 'precio_venta_usd', 'moneda_precio_venta', 'precio_referencia_confirmada'];
 const CAMPOS_COSTO = ['costo_reposicion_usd', 'moneda_costo_reposicion'];
@@ -134,12 +135,12 @@ const montosDe = (data: Partial<ProductoSucursalData>) => ({
 export class ProductoSucursalService {
   private repo = new ProductoSucursalRepository();
 
-  async getAll(tenantId: string, operativo = false) {
-    return this.repo.findAll(tenantId, operativo);
+  async getAll(tenantId: string, operativo = false, alcance?: SucursalAlcance, sucursalId?: string) {
+    return this.repo.findAll(tenantId, operativo, alcance?.sucursalIds, sucursalId);
   }
 
-  async getPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string, operativo = false) {
-    return this.repo.findPaginated(tenantId, limit, offset, search, sucursalId, operativo);
+  async getPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalId?: string, operativo = false, alcance?: SucursalAlcance) {
+    return this.repo.findPaginated(tenantId, limit, offset, search, sucursalId, operativo, alcance?.sucursalIds);
   }
 
   async getPaginatedWithTotal(
@@ -151,20 +152,22 @@ export class ProductoSucursalService {
     filtros?: ProductoSucursalFiltros,
     sortBy?: string,
     sortDir?: string,
-    operativo = false
+    operativo = false,
+    alcance?: SucursalAlcance
   ) {
-    return this.repo.findPaginatedWithTotal(tenantId, limit, offset, search, sucursalId, filtros, sortBy, sortDir, operativo);
+    return this.repo.findPaginatedWithTotal(tenantId, limit, offset, search, sucursalId, filtros, sortBy, sortDir, operativo, alcance?.sucursalIds);
   }
 
-  async getValoresUnicos(tenantId: string, campo: string) {
-    return this.repo.findValoresUnicos(tenantId, campo);
+  async getValoresUnicos(tenantId: string, campo: string, alcance?: SucursalAlcance) {
+    return this.repo.findValoresUnicos(tenantId, campo, alcance?.sucursalIds);
   }
 
-  async getById(id: string, tenantId: string) {
-    return this.repo.findById(id, tenantId);
+  async getById(id: string, tenantId: string, alcance?: SucursalAlcance) {
+    return this.repo.findById(id, tenantId, undefined, alcance?.sucursalIds);
   }
 
-  async create(tenantId: string, data: ProductoSucursalData) {
+  async create(tenantId: string, data: ProductoSucursalData, alcance?: SucursalAlcance) {
+    if (alcance) exigirSucursal(alcance, data.sucursal_id, true);
     validarDescuentoProducto(data.descuento);
     validarCantidades(data);
     data = normalizarMontos(data);
@@ -175,22 +178,29 @@ export class ProductoSucursalService {
           { ars: preparado.costo_reposicion, usd: preparado.costo_reposicion_usd, moneda: preparado.moneda_costo_reposicion },
           { ars: preparado.precio_venta_ars, usd: preparado.precio_venta_usd, moneda: preparado.moneda_precio_venta },
           preparado.margen_minimo);
-        return this.repo.create(preparado, tenantId, client);
+        return this.repo.create(preparado, tenantId, client, alcance?.sucursalesActivasIds);
       }, data.sucursal_id);
       if (!item) throw new BusinessError('El producto o la sucursal no pertenecen al tenant actual.');
-      return this.repo.findById(item.id, tenantId);
+      return this.repo.findById(item.id, tenantId, undefined, alcance?.sucursalIds);
     }
     validarMargenMinimoConfiguracion(data);
-    const item = await this.repo.create(data, tenantId);
+    const item = await this.repo.create(data, tenantId, undefined, alcance?.sucursalesActivasIds);
     if (!item) {
       throw new BusinessError('El producto o la sucursal no pertenecen al tenant actual.');
     }
-    return this.repo.findById(item.id, tenantId);
+    return this.repo.findById(item.id, tenantId, undefined, alcance?.sucursalIds);
   }
 
-  async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string) {
-    const actual = await this.repo.findById(id, tenantId);
+  async update(id: string, data: Partial<ProductoSucursalData>, tenantId: string, alcance?: SucursalAlcance) {
+    if (alcance && data.sucursal_id) exigirSucursal(alcance, data.sucursal_id);
+    const actual = await this.repo.findById(id, tenantId, undefined, alcance?.sucursalIds);
     if (!actual) return null;
+    if (data.sucursal_id !== undefined && data.sucursal_id !== actual.sucursal_id) {
+      throw new BusinessError('No se puede cambiar el punto de venta del stock existente.');
+    }
+    // Acepta que el cliente reenvíe el PDV actual, pero no lo incluye en el UPDATE.
+    delete data.sucursal_id;
+    if (Object.keys(data).length === 0) return actual;
     if ('descuento' in data) {
       validarDescuentoProducto(data.descuento);
     }
@@ -198,7 +208,7 @@ export class ProductoSucursalService {
     data = normalizarMontos(data);
     if (tieneMontos(data)) {
       await escribirConMontos(tenantId, montosDe(data), async (client, resueltos) => {
-        const actualTransaccional = await this.repo.findById(id, tenantId, client);
+        const actualTransaccional = await this.repo.findById(id, tenantId, client, alcance?.sucursalIds);
         if (!actualTransaccional) return null;
         const costoActual: Monto = { ars: actualTransaccional.costo_reposicion_ars_resuelto ?? actualTransaccional.costo_reposicion, usd: actualTransaccional.costo_reposicion_usd, moneda: actualTransaccional.moneda_costo_reposicion };
         // Precio efectivo: el propio o, si no tiene, el base del producto.
@@ -210,26 +220,26 @@ export class ProductoSucursalService {
           resueltos.costo ? { ars: columnas.costo_reposicion, usd: columnas.costo_reposicion_usd, moneda: columnas.moneda_costo_reposicion } : costoLegado ?? costoActual,
           resueltos.precio ? { ars: columnas.precio_venta_ars, usd: columnas.precio_venta_usd, moneda: columnas.moneda_precio_venta } : precioActual,
           margen);
-        return this.repo.update(id, { ...data, ...columnas }, tenantId, client);
+        return this.repo.update(id, { ...data, ...columnas }, tenantId, client, alcance?.sucursalIds);
       }, actual.sucursal_id);
-      return this.repo.findById(id, tenantId);
+      return this.repo.findById(id, tenantId, undefined, alcance?.sucursalIds);
     }
     return withTransaction(async (client) => {
       // La vista resuelve importes con la tasa protegida hasta guardar el cambio.
       await new CotizacionRepository().obtenerPorSucursal(tenantId, actual.sucursal_id, client);
-      const actualTransaccional = await this.repo.findById(id, tenantId, client);
+      const actualTransaccional = await this.repo.findById(id, tenantId, client, alcance?.sucursalIds);
       if (!actualTransaccional) return null;
       const costoActual: Monto = { ars: actualTransaccional.costo_reposicion_ars_resuelto ?? actualTransaccional.costo_reposicion, usd: actualTransaccional.costo_reposicion_usd, moneda: actualTransaccional.moneda_costo_reposicion };
       const precioActual: Monto = { ars: actualTransaccional.precio_venta_ars_resuelto, usd: actualTransaccional.precio_efectivo_usd, moneda: actualTransaccional.moneda_precio_efectiva };
       const costoLegado: Monto | null = 'costo_reposicion' in data ? { ars: data.costo_reposicion, usd: null, moneda: 'ARS' } : null;
       const margen = 'margen_minimo' in data ? data.margen_minimo : actualTransaccional.margen_minimo;
       margenEntre(costoLegado ?? costoActual, precioActual, margen);
-      const guardado = await this.repo.update(id, data, tenantId, client);
-      return guardado ? this.repo.findById(id, tenantId, client) : null;
+      const guardado = await this.repo.update(id, data, tenantId, client, alcance?.sucursalIds);
+      return guardado ? this.repo.findById(id, tenantId, client, alcance?.sucursalIds) : null;
     });
   }
 
-  async eliminar(id: string, tenantId: string) {
-    return this.repo.softDelete(id, tenantId);
+  async eliminar(id: string, tenantId: string, alcance?: SucursalAlcance) {
+    return this.repo.softDelete(id, tenantId, alcance?.sucursalIds);
   }
 }

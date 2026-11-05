@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { SucursalInput, SucursalService } from '../services/sucursal.service';
-import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse } from '../utils/response';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
 import { BusinessError, CatalogoError } from '../utils/errors';
+import { recursoNoDisponible, resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 const service = new SucursalService();
 
@@ -30,8 +30,8 @@ export class SucursalController {
   getAllByUser = async (req: Request, res: Response): Promise<void> => {
     try {
       const authId = req.user!.id;
-      const tenantId = await getTenantIdByAuthId(authId);
-      const data = await service.getByUser(authId, tenantId);
+      const alcance = await resolverSucursalAlcance(authId);
+      const data = await service.getByUser(authId, alcance.tenantId);
       res.status(200).json({ status: 'success', data });
     } catch (error: unknown) {
       manejarError(error, res, 'getAllByUser');
@@ -41,18 +41,28 @@ export class SucursalController {
   /** Todas las sucursales del tenant, para administrarlas desde Configuración. */
   getAll = async (req: TypedRequestQuery<SucursalQuery>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const data = await service.getAll(tenantId, req.user!.id, req.query.todas !== 'true');
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const data = await service.getAll(alcance.tenantId, req.user!.id, req.query.todas !== 'true', alcance.sucursalIds);
       res.status(200).json(successResponse(data));
     } catch (error: unknown) {
       manejarError(error, res, 'getAll');
     }
   };
 
+  getReferenciasGlobales = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const data = await service.getReferenciasGlobales(alcance.tenantId);
+      res.status(200).json(successResponse(data));
+    } catch (error: unknown) {
+      manejarError(error, res, 'getReferenciasGlobales');
+    }
+  };
+
   create = async (req: TypedRequestBody<SucursalInput>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const sucursal = await service.create(tenantId, req.body, req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const sucursal = await service.create(alcance.tenantId, req.body, req.user!.id);
       res.status(201).json(successResponse(sucursal));
     } catch (error: unknown) {
       manejarError(error, res, 'create');
@@ -64,11 +74,10 @@ export class SucursalController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const sucursal = await service.update(req.params.id, tenantId, req.body, req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const sucursal = await service.update(req.params.id, alcance.tenantId, req.body, req.user!.id, alcance);
       if (!sucursal) {
-        res.status(404).json(errorResponse('Sucursal no encontrada'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(sucursal));
     } catch (error: unknown) {
@@ -78,11 +87,10 @@ export class SucursalController {
 
   delete = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const sucursal = await service.desactivar(req.params.id, tenantId, req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const sucursal = await service.desactivar(req.params.id, alcance.tenantId, req.user!.id, alcance);
       if (!sucursal) {
-        res.status(404).json(errorResponse('Sucursal no encontrada'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(sucursal));
     } catch (error: unknown) {
@@ -92,11 +100,10 @@ export class SucursalController {
 
   getUsuarios = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const usuarios = await service.getUsuariosAsignados(req.params.id, tenantId, req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const usuarios = await service.getUsuariosAsignados(req.params.id, alcance.tenantId, req.user!.id, alcance);
       if (!usuarios) {
-        res.status(404).json(errorResponse('Sucursal no encontrada'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(usuarios));
     } catch (error: unknown) {
@@ -107,8 +114,8 @@ export class SucursalController {
   /** Usuarios y roles del tenant para el selector de asignaciones. */
   getOpcionesAsignacion = async (req: Request, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      res.status(200).json(successResponse(await service.getOpcionesAsignacion(tenantId, req.user!.id)));
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      res.status(200).json(successResponse(await service.getOpcionesAsignacion(alcance.tenantId, req.user!.id)));
     } catch (error: unknown) {
       manejarError(error, res, 'getOpcionesAsignacion');
     }
@@ -117,11 +124,10 @@ export class SucursalController {
   /** Qué queda inaccesible si se da de baja: se muestra antes de confirmar. */
   getResumenUso = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const resumen = await service.resumenUso(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const resumen = await service.resumenUso(req.params.id, alcance.tenantId, alcance);
       if (!resumen) {
-        res.status(404).json(errorResponse('Sucursal no encontrada'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(resumen));
     } catch (error: unknown) {

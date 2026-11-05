@@ -1,13 +1,17 @@
 import { Response } from 'express';
 import { RegionService } from '../services/region.service';
-import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse } from '../utils/response';
 import { TypedRequest, TypedRequestBody, TypedRequestParams } from '../types/request.types';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 const service = new RegionService();
 
 function manejarError(error: unknown, res: Response, contexto: string) {
+  if (error instanceof CatalogoError) {
+    res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+    return;
+  }
   if (error instanceof BusinessError) {
     res.status(400).json(errorResponse(error.message));
     return;
@@ -22,8 +26,8 @@ type RegionBody = { nombre?: string; descuento?: number; activo?: boolean; sucur
 export class RegionController {
   getRegiones = async (req: TypedRequest<{ solo_activas?: string }, unknown, unknown>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const regiones = await service.getRegiones(tenantId, req.query.solo_activas === 'true');
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const regiones = await service.getRegiones(alcance.tenantId, req.query.solo_activas === 'true', alcance);
       res.status(200).json(successResponse(regiones));
     } catch (error: unknown) {
       manejarError(error, res, 'getRegiones');
@@ -35,11 +39,11 @@ export class RegionController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const { sucursalId } = req.params;
       const soloActivas = req.query.solo_activas === 'true';
 
-      const regiones = await service.getRegionesPorSucursal(sucursalId, tenantId, soloActivas);
+      const regiones = await service.getRegionesPorSucursal(sucursalId, alcance.tenantId, soloActivas, alcance);
       res.status(200).json(successResponse(regiones));
     } catch (error: unknown) {
       manejarError(error, res, 'getRegionesPorSucursal');
@@ -48,8 +52,8 @@ export class RegionController {
 
   getRegion = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const region = await service.getRegion(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const region = await service.getRegion(req.params.id, alcance.tenantId, alcance);
       res.status(200).json(successResponse(region));
     } catch (error: unknown) {
       manejarError(error, res, 'getRegion');
@@ -61,8 +65,8 @@ export class RegionController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const nueva = await service.crearRegion(tenantId, req.body);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const nueva = await service.crearRegion(alcance.tenantId, req.body, alcance);
       res.status(201).json(successResponse(nueva));
     } catch (error: unknown) {
       manejarError(error, res, 'createRegion');
@@ -74,11 +78,10 @@ export class RegionController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const actualizada = await service.actualizarRegion(req.params.id, tenantId, req.body);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const actualizada = await service.actualizarRegion(req.params.id, alcance.tenantId, req.body, alcance);
       if (!actualizada) {
-        res.status(404).json(errorResponse('Región no encontrada.'));
-        return;
+        throw new CatalogoError('El recurso no está disponible.', 'RECURSO_NO_DISPONIBLE', 404);
       }
       res.status(200).json(successResponse(actualizada));
     } catch (error: unknown) {
@@ -88,11 +91,10 @@ export class RegionController {
 
   deleteRegion = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const eliminada = await service.eliminarRegion(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const eliminada = await service.eliminarRegion(req.params.id, alcance.tenantId, alcance);
       if (!eliminada) {
-        res.status(404).json(errorResponse('Región no encontrada.'));
-        return;
+        throw new CatalogoError('El recurso no está disponible.', 'RECURSO_NO_DISPONIBLE', 404);
       }
       res.status(200).json(successResponse(eliminada));
     } catch (error: unknown) {

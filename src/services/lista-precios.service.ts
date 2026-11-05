@@ -6,6 +6,7 @@ import { CatalogoError } from '../utils/errors';
 import { calcularCascada, EntradaCascada, resolverDescuentoProducto } from '../utils/cascada-descuentos';
 import { resolverDescuento } from './descuento-categoria.service';
 import { costoArsVigente, Dinero, resolverPrecio } from '../utils/moneda';
+import { exigirSucursal, recursoNoDisponible, SucursalAlcance } from './sucursal-alcance.service';
 
 type NivelesCliente = Pick<EntradaCascada, 'descuentoRegionCliente' | 'descuentoCategoriaCliente' | 'descuentoProductoCliente' | 'descuentoCliente'>;
 interface FilaProducto { producto_id: string; tipo_id: string | null; subtipo_id: string | null }
@@ -14,11 +15,18 @@ const numero = (valor: unknown) => (valor == null ? null : Number(valor));
 
 export class ListaPreciosService {
   /** Lista de un cliente: los niveles generales más los propios del cliente. */
-  async obtener(tenantId: string, sucursalId: string, clienteId: string) {
+  async obtener(tenantId: string, sucursalId: string, clienteId: string, alcance?: SucursalAlcance) {
+    if (alcance) exigirSucursal(alcance, sucursalId, true);
     return withTransaction(async (client) => {
       const contexto = await new CotizacionRepository().obtenerPorSucursal(tenantId, sucursalId, client);
-      const { rows: clientes } = await client.query('SELECT id, nombre, descuento_porcentaje FROM public.cliente WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [clienteId, tenantId]);
-      if (!clientes[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
+      const { rows: clientes } = await client.query(
+        `SELECT c.id, c.nombre, c.descuento_porcentaje
+         FROM public.cliente c
+         JOIN public.cliente_sucursal cs ON cs.cliente_id = c.id AND cs.sucursal_id = $3
+         WHERE c.id = $1 AND c.tenant_id = $2 AND c.activo = TRUE`,
+        [clienteId, tenantId, sucursalId]
+      );
+      if (!clientes[0]) throw recursoNoDisponible();
       const [categorias, descuentos, regiones] = await Promise.all([
         client.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.cliente_descuento_categoria WHERE cliente_id = $1', [clienteId]),
         client.query('SELECT producto_id, porcentaje FROM public.cliente_descuento_producto WHERE cliente_id = $1', [clienteId]),
@@ -45,7 +53,8 @@ export class ListaPreciosService {
   }
 
   /** Lista general de una sucursal: solo los niveles que valen para todos los clientes. */
-  async obtenerGeneral(tenantId: string, sucursalId: string) {
+  async obtenerGeneral(tenantId: string, sucursalId: string, alcance?: SucursalAlcance) {
+    if (alcance) exigirSucursal(alcance, sucursalId, true);
     return withTransaction(async (client) => {
       const contexto = await new CotizacionRepository().obtenerPorSucursal(tenantId, sucursalId, client);
       return this.calcular(tenantId, sucursalId, client, contexto, () => ({}));

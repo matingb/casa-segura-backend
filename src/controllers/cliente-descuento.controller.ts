@@ -1,13 +1,17 @@
 import { Response } from 'express';
 import { ClienteDescuentoService } from '../services/cliente-descuento.service';
-import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse } from '../utils/response';
 import { TypedRequest, TypedRequestBody, TypedRequestParams } from '../types/request.types';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 const service = new ClienteDescuentoService();
 
 function manejarError(error: unknown, res: Response, contexto: string) {
+  if (error instanceof CatalogoError) {
+    res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+    return;
+  }
   if (error instanceof BusinessError) {
     res.status(400).json(errorResponse(error.message));
     return;
@@ -23,8 +27,8 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const resultado = await service.getDescuentosCliente(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const resultado = await service.getDescuentosCliente(req.params.id, alcance.tenantId, alcance);
       res.status(200).json(successResponse(resultado));
     } catch (error: unknown) {
       manejarError(error, res, 'getDescuentos');
@@ -40,7 +44,7 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const { tipo_id, subtipo_id, porcentaje, nota } = req.body;
 
       if (!tipo_id && !subtipo_id) {
@@ -55,10 +59,11 @@ export class ClienteDescuentoController {
       const destino = tipo_id ? { tipoId: tipo_id } : { subtipoId: subtipo_id! };
       const guardado = await service.asignarDescuentoCategoria(
         req.params.id,
-        tenantId,
+        alcance.tenantId,
         destino,
         porcentaje,
-        nota
+        nota,
+        alcance
       );
       res.status(200).json(successResponse(guardado));
     } catch (error: unknown) {
@@ -71,11 +76,12 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const resultado = await service.quitarDescuentoCategoria(
         req.params.id,
         req.params.descuentoId,
-        tenantId
+        alcance.tenantId,
+        alcance
       );
       res.status(200).json(successResponse(resultado));
     } catch (error: unknown) {
@@ -92,7 +98,7 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const { producto_id, porcentaje, nota } = req.body;
 
       if (!producto_id) {
@@ -102,10 +108,11 @@ export class ClienteDescuentoController {
 
       const guardado = await service.asignarDescuentoProducto(
         req.params.id,
-        tenantId,
+        alcance.tenantId,
         producto_id,
         porcentaje,
-        nota
+        nota,
+        alcance
       );
       res.status(200).json(successResponse(guardado));
     } catch (error: unknown) {
@@ -118,11 +125,12 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const resultado = await service.quitarDescuentoProducto(
         req.params.id,
         req.params.descuentoId,
-        tenantId
+        alcance.tenantId,
+        alcance
       );
       res.status(200).json(successResponse(resultado));
     } catch (error: unknown) {
@@ -139,7 +147,7 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const { sucursal_id, region_id } = req.body;
 
       if (!sucursal_id || !region_id) {
@@ -149,9 +157,10 @@ export class ClienteDescuentoController {
 
       const asignado = await service.asignarRegion(
         req.params.id,
-        tenantId,
+        alcance.tenantId,
         sucursal_id,
-        region_id
+        region_id,
+        alcance
       );
       res.status(200).json(successResponse(asignado));
     } catch (error: unknown) {
@@ -164,11 +173,12 @@ export class ClienteDescuentoController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const resultado = await service.quitarRegion(
         req.params.id,
-        tenantId,
-        req.params.sucursalId
+        alcance.tenantId,
+        req.params.sucursalId,
+        alcance
       );
       res.status(200).json(successResponse(resultado));
     } catch (error: unknown) {

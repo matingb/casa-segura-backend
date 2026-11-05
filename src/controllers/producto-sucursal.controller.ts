@@ -1,11 +1,11 @@
 import { Response } from 'express';
 import { ProductoSucursalService } from '../services/producto-sucursal.service';
 import { ProductoSucursalData, ProductoSucursalFiltros } from '../repositories/producto-sucursal.repository';
-import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
 import { BusinessError, CatalogoError } from '../utils/errors';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
+import { exigirSucursal, recursoNoDisponible, resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 const service = new ProductoSucursalService();
 
@@ -34,11 +34,14 @@ export interface ValoresUnicosQuery {
 export class ProductoSucursalController {
   getAll = async (req: TypedRequestQuery<ProductoSucursalQuery>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const tenantId = alcance.tenantId;
       const {
         limit, offset, sucursalId, search, page, sortBy, sortDir,
         filtro_codigo, filtro_nombre, filtro_marca, filtro_modelo, filtro_subtipo, filtro_sucursal, filtro_estado, operativo,
       } = req.query;
+
+      if (sucursalId) exigirSucursal(alcance, sucursalId);
 
       if (page !== undefined) {
         const normalizedLimit = normalizePaginationLimit(limit);
@@ -54,7 +57,7 @@ export class ProductoSucursalController {
           estado: filtro_estado,
         };
         const result = await service.getPaginatedWithTotal(
-          tenantId, normalizedLimit, parsedOffset, search, sucursalId, filtros, sortBy, sortDir, operativo === 'true'
+          tenantId, normalizedLimit, parsedOffset, search, sucursalId, filtros, sortBy, sortDir, operativo === 'true', alcance
         );
         res.status(200).json({
           status: 'success',
@@ -70,15 +73,19 @@ export class ProductoSucursalController {
       }
 
       if (limit === undefined) {
-        const data = await service.getAll(tenantId, operativo === 'true');
+        const data = await service.getAll(tenantId, operativo === 'true', alcance, sucursalId);
         res.status(200).json({ status: 'success', data });
         return;
       }
       const normalizedLimit = normalizePaginationLimit(limit);
       const parsedOffset = Math.max(0, Number(offset) || 0);
-      const result = await service.getPaginated(tenantId, normalizedLimit, parsedOffset, search, sucursalId, operativo === 'true');
+      const result = await service.getPaginated(tenantId, normalizedLimit, parsedOffset, search, sucursalId, operativo === 'true', alcance);
       res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in ProductoSucursalController.getAll:', error);
       res.status(500).json(errorResponse(message));
@@ -87,10 +94,10 @@ export class ProductoSucursalController {
 
   delete = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const item = await service.eliminar(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const item = await service.eliminar(req.params.id, alcance.tenantId, alcance);
       if (!item) {
-        res.status(404).json(errorResponse('Stock no encontrado'));
+        res.status(404).json({ ...errorResponse('El recurso no está disponible.'), code: 'RECURSO_NO_DISPONIBLE' });
         return;
       }
       res.status(200).json(successResponse(item));
@@ -111,15 +118,19 @@ export class ProductoSucursalController {
 
   getValoresUnicos = async (req: TypedRequestQuery<ValoresUnicosQuery>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const { campo } = req.query;
       if (!campo) {
         res.status(400).json(errorResponse('El parámetro "campo" es requerido'));
         return;
       }
-      const valores = await service.getValoresUnicos(tenantId, campo);
+      const valores = await service.getValoresUnicos(alcance.tenantId, campo, alcance);
       res.status(200).json(successResponse(valores));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in ProductoSucursalController.getValoresUnicos:', error);
       res.status(500).json(errorResponse(message));
@@ -128,14 +139,17 @@ export class ProductoSucursalController {
 
   getById = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const item = await service.getById(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const item = await service.getById(req.params.id, alcance.tenantId, alcance);
       if (!item) {
-        res.status(404).json(errorResponse('Stock no encontrado'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(item));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('Error in ProductoSucursalController.getById:', error);
       res.status(500).json(errorResponse(message));
@@ -144,8 +158,8 @@ export class ProductoSucursalController {
 
   create = async (req: TypedRequestBody<ProductoSucursalData>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const item = await service.create(tenantId, req.body);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const item = await service.create(alcance.tenantId, req.body, alcance);
       res.status(201).json(successResponse(item));
     } catch (error: unknown) {
       if (error instanceof CatalogoError) {
@@ -167,11 +181,10 @@ export class ProductoSucursalController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const item = await service.update(req.params.id, req.body, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const item = await service.update(req.params.id, req.body, alcance.tenantId, alcance);
       if (!item) {
-        res.status(404).json(errorResponse('Stock no encontrado'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(item));
     } catch (error: unknown) {

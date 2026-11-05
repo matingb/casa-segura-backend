@@ -6,6 +6,7 @@ import { TypedRequestBody } from '../types/request.types';
 import { BusinessError, CatalogoError } from '../utils/errors';
 import { ListaPreciosService } from '../services/lista-precios.service';
 import { Request } from 'express';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 const service = new DescuentoEngineService();
 
@@ -22,8 +23,9 @@ export class DescuentoEngineController {
       if (typeof req.query.sucursalId !== 'string' || typeof req.query.clienteId !== 'string') {
         throw new CatalogoError('Elegí un cliente y una sucursal.', 'CONTEXTO_INVALIDO');
       }
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       res.json(successResponse(await new ListaPreciosService().obtener(
-        await getTenantIdByAuthId(req.user!.id), req.query.sucursalId, req.query.clienteId)));
+        alcance.tenantId, req.query.sucursalId, req.query.clienteId, alcance)));
     } catch (error) {
       if (error instanceof CatalogoError) res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
       else { console.error('[ListaPrecios]', error); res.status(500).json(errorResponse('No se pudo generar la lista de precios.')); }
@@ -34,8 +36,9 @@ export class DescuentoEngineController {
       if (typeof req.query.sucursalId !== 'string') {
         throw new CatalogoError('Elegí una sucursal.', 'CONTEXTO_INVALIDO');
       }
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       res.json(successResponse(await new ListaPreciosService().obtenerGeneral(
-        await getTenantIdByAuthId(req.user!.id), req.query.sucursalId)));
+        alcance.tenantId, req.query.sucursalId, alcance)));
     } catch (error) {
       if (error instanceof CatalogoError) res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
       else { console.error('[ListaPrecios]', error); res.status(500).json(errorResponse('No se pudo generar la lista de precios.')); }

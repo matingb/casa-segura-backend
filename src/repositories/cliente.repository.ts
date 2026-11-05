@@ -2,6 +2,8 @@ import { pool } from '../config/db';
 import { withTransaction } from '../utils/db-transaction';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
+import { BusinessError } from '../utils/errors';
+import { CatalogoError } from '../utils/errors';
 
 export interface ClienteFiltros {
   nombre?: string;
@@ -72,6 +74,15 @@ const SUCURSALES_SELECT = `
   ), '[]'::json) AS sucursales
 `;
 
+const sucursalesSelect = (scopeParam?: string) => `
+  COALESCE((
+    SELECT json_agg(json_build_object('id', s.id, 'nombre', s.nombre) ORDER BY s.nombre)
+    FROM public.cliente_sucursal cs
+    JOIN public.sucursal s ON s.id = cs.sucursal_id
+    WHERE cs.cliente_id = c.id ${scopeParam ? `AND cs.sucursal_id = ANY(${scopeParam}::uuid[])` : ''}
+  ), '[]'::json) AS sucursales
+`;
+
 const SUCURSALES_NOMBRES_SELECT = `
   COALESCE((
     SELECT string_agg(s.nombre, ', ' ORDER BY s.nombre)
@@ -81,22 +92,39 @@ const SUCURSALES_NOMBRES_SELECT = `
   ), '') AS sucursales_nombres
 `;
 
+const sucursalesNombresSelect = (scopeParam?: string) => `
+  COALESCE((
+    SELECT string_agg(s.nombre, ', ' ORDER BY s.nombre)
+    FROM public.cliente_sucursal cs
+    JOIN public.sucursal s ON s.id = cs.sucursal_id
+    WHERE cs.cliente_id = c.id ${scopeParam ? `AND cs.sucursal_id = ANY(${scopeParam}::uuid[])` : ''}
+  ), '') AS sucursales_nombres
+`;
+
 export class ClienteRepository {
 
-  async findAll(tenantId: string, operativo = false) {
+  async findAll(tenantId: string, operativo = false, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return [];
+    const sucursales = sucursalIds ? sucursalesSelect('$2') : SUCURSALES_SELECT;
     const { rows } = await pool.query(
-      `SELECT c.*, ${SUCURSALES_SELECT}
+      `SELECT c.*, ${sucursales}
        FROM public.cliente c
-       WHERE c.tenant_id = $1 ${operativo ? 'AND c.activo = TRUE' : ''}
+       WHERE c.tenant_id = $1
+         AND ($2::uuid[] IS NULL OR EXISTS (
+           SELECT 1 FROM public.cliente_sucursal cs
+           WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])
+         )) ${operativo ? 'AND c.activo = TRUE' : ''}
        ORDER BY c.nombre`,
-      [tenantId]
+      [tenantId, sucursalIds ?? null]
     );
     return rows;
   }
 
-  async findPaginated(tenantId: string, limit: number, offset: number, search?: string) {
+  async findPaginated(tenantId: string, limit: number, offset: number, search?: string, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return { items: [], hasMore: false };
     const sentinel = getLimitSentinel(limit);
-    const params: unknown[] = [tenantId, sentinel, offset];
+    const sucursales = sucursalIds ? sucursalesSelect('$2') : SUCURSALES_SELECT;
+    const params: unknown[] = [tenantId, sucursalIds ?? null, sentinel, offset];
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -104,11 +132,13 @@ export class ClienteRepository {
       searchClause = `AND (${SEARCHABLE_COLUMNS.map((col) => `${col} ILIKE $${idx}`).join(' OR ')})`;
     }
     const { rows } = await pool.query(
-      `SELECT c.*, ${SUCURSALES_SELECT}
+      `SELECT c.*, ${sucursales}
        FROM public.cliente c
-       WHERE c.tenant_id = $1 ${searchClause}
+       WHERE c.tenant_id = $1
+         AND ($2::uuid[] IS NULL OR EXISTS (SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])))
+         ${searchClause}
        ORDER BY c.nombre
-       LIMIT $2 OFFSET $3`,
+       LIMIT $3 OFFSET $4`,
       params
     );
     return sliceWithHasMore(rows, limit);
@@ -121,9 +151,13 @@ export class ClienteRepository {
     search?: string,
     filtros?: ClienteFiltros,
     sortBy?: string,
-    sortDir?: string
+    sortDir?: string,
+    sucursalIds?: string[]
   ) {
-    const params: unknown[] = [tenantId];
+    if (sucursalIds && sucursalIds.length === 0) return { items: [], total: 0 };
+    const sucursales = sucursalIds ? sucursalesSelect('$2') : SUCURSALES_SELECT;
+    const sucursalesNombres = sucursalIds ? sucursalesNombresSelect('$2') : SUCURSALES_NOMBRES_SELECT;
+    const params: unknown[] = [tenantId, sucursalIds ?? null];
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -155,6 +189,7 @@ export class ClienteRepository {
            SELECT 1 FROM public.cliente_sucursal cs
            JOIN public.sucursal s ON s.id = cs.sucursal_id
            WHERE cs.cliente_id = c.id AND s.nombre = $${params.length}
+             AND ($2::uuid[] IS NULL OR cs.sucursal_id = ANY($2::uuid[]))
          )`
       );
     }
@@ -168,13 +203,17 @@ export class ClienteRepository {
 
     const countQuery = `
       SELECT COUNT(*) FROM public.cliente c
-      WHERE c.tenant_id = $1 ${searchClause} ${filtersSql}
+      WHERE c.tenant_id = $1
+        AND ($2::uuid[] IS NULL OR EXISTS (SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])))
+        ${searchClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
-      SELECT c.*, ${SUCURSALES_SELECT}, ${SUCURSALES_NOMBRES_SELECT}
+      SELECT c.*, ${sucursales}, ${sucursalesNombres}
       FROM public.cliente c
-      WHERE c.tenant_id = $1 ${searchClause} ${filtersSql}
+      WHERE c.tenant_id = $1
+        AND ($2::uuid[] IS NULL OR EXISTS (SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])))
+        ${searchClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -190,7 +229,8 @@ export class ClienteRepository {
     };
   }
 
-  async findValoresUnicos(tenantId: string, campo: string): Promise<string[]> {
+  async findValoresUnicos(tenantId: string, campo: string, sucursalIds?: string[]): Promise<string[]> {
+    if (sucursalIds && sucursalIds.length === 0) return [];
     const columnasPermitidas: Record<string, string> = {
       nombre: 'c.nombre',
       razonSocial: 'c.razon_social',
@@ -200,20 +240,36 @@ export class ClienteRepository {
     };
 
     if (campo === 'estado') {
-      return ['Activo', 'Inactivo'];
+      const { rows } = await pool.query(
+        `SELECT DISTINCT CASE WHEN c.activo THEN 'Activo' ELSE 'Inactivo' END AS valor
+         FROM public.cliente c
+         WHERE c.tenant_id = $1 AND ($2::uuid[] IS NULL OR EXISTS (
+           SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])
+         )) ORDER BY valor`, [tenantId, sucursalIds ?? null]
+      );
+      return rows.map((r) => r.valor);
     }
 
     if (campo === 'tipoCliente') {
-      return ['persona', 'empresa'];
+      const { rows } = await pool.query(
+        `SELECT DISTINCT c.tipo_cliente AS valor FROM public.cliente c
+         WHERE c.tenant_id = $1 AND ($2::uuid[] IS NULL OR EXISTS (
+           SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])
+         )) AND c.tipo_cliente IS NOT NULL ORDER BY valor`, [tenantId, sucursalIds ?? null]
+      );
+      return rows.map((r) => r.valor);
     }
 
     if (campo === 'sucursal') {
       const { rows } = await pool.query(
         `SELECT DISTINCT s.nombre AS valor
          FROM public.sucursal s
+         JOIN public.cliente_sucursal cs ON cs.sucursal_id = s.id
+         JOIN public.cliente c ON c.id = cs.cliente_id AND c.tenant_id = $1
          WHERE s.tenant_id = $1 AND s.nombre IS NOT NULL
+           AND ($2::uuid[] IS NULL OR s.id = ANY($2::uuid[]))
          ORDER BY valor`,
-        [tenantId]
+        [tenantId, sucursalIds ?? null]
       );
       return rows.map((r) => r.valor);
     }
@@ -225,19 +281,23 @@ export class ClienteRepository {
       `SELECT DISTINCT ${columna} AS valor
        FROM public.cliente c
        WHERE c.tenant_id = $1 AND ${columna} IS NOT NULL AND ${columna} <> ''
+         AND ($2::uuid[] IS NULL OR EXISTS (SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])))
        ORDER BY valor`,
-      [tenantId]
+      [tenantId, sucursalIds ?? null]
     );
     return rows.map((r) => r.valor);
   }
 
-  async findById(id: string, tenantId: string) {
+  async findById(id: string, tenantId: string, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return null;
+    const sucursales = sucursalIds ? sucursalesSelect('$3') : SUCURSALES_SELECT;
     const { rows } = await pool.query(
-      `SELECT c.*, ${SUCURSALES_SELECT}
+      `SELECT c.*, ${sucursales}
        FROM public.cliente c
        WHERE c.id = $1 AND c.tenant_id = $2
+         AND ($3::uuid[] IS NULL OR EXISTS (SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($3::uuid[])))
        LIMIT 1`,
-      [id, tenantId]
+      [id, tenantId, sucursalIds ?? null]
     );
     return rows[0] ?? null;
   }
@@ -256,10 +316,23 @@ export class ClienteRepository {
     return sucursalIds.filter((id) => !validas.has(id));
   }
 
-  async create(data: ClienteData) {
+  async create(data: ClienteData, sucursalIdsPermitidas?: string[], sucursalIdsActivas?: string[]) {
     const { sucursal_ids = [], ...cliente } = data;
 
     return withTransaction(async (client) => {
+      if (sucursalIdsPermitidas) {
+        const unicas = [...new Set(sucursal_ids)];
+        if (unicas.some((id) => !sucursalIdsPermitidas.includes(id) || !sucursalIdsActivas?.includes(id))) {
+          throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+        }
+        const { rows: validas } = await client.query(
+          `SELECT id FROM public.sucursal WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND activo = TRUE`,
+          [unicas, cliente.tenant_id]
+        );
+        if (validas.length !== unicas.length) {
+          throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+        }
+      }
       const { rows } = await client.query(
         `INSERT INTO public.cliente
           (tenant_id, nombre, tipo_cliente, razon_social, nombre_contacto,
@@ -345,20 +418,159 @@ export class ClienteRepository {
     });
   }
 
+  /** Actualiza datos comunes y solo la porción de asociaciones visible al usuario, bajo lock del cliente. */
+  async updateEnAlcance(
+    id: string,
+    data: Partial<ClienteData>,
+    tenantId: string,
+    sucursalIdsPermitidas: string[],
+    sucursalIdsActivas: string[],
+    authId: string
+  ): Promise<{ cliente: any | null; acceso_revocado: boolean } | null> {
+    if (sucursalIdsPermitidas.length === 0) return null;
+    const { sucursal_ids, ...cliente } = data;
+    const campos = [
+      'nombre', 'tipo_cliente', 'razon_social', 'nombre_contacto', 'tipo_documento', 'nro_documento',
+      'condicion_iva', 'email', 'telefono', 'direccion', 'localidad', 'provincia', 'codigo_postal',
+      'descuento_porcentaje', 'observaciones', 'activo',
+    ];
+
+    return withTransaction(async (clientDb) => {
+      const { rows: asignaciones } = await clientDb.query(
+        `SELECT s.id AS sucursal_id, s.activo AS sucursal_activa
+         FROM public.usuario u
+         JOIN public.usuario_sucursal us ON us.usuario_id = u.id AND us.activo = TRUE
+         JOIN public.sucursal s ON s.id = us.sucursal_id AND s.tenant_id = u.tenant_id
+         WHERE u.auth_id = $1 AND u.tenant_id = $2 AND u.activo = TRUE
+           AND s.id = ANY($3::uuid[])
+         FOR SHARE OF u, us, s`,
+        [authId, tenantId, sucursalIdsPermitidas]
+      );
+      const alcanceTransaccional = asignaciones.map((row) => row.sucursal_id as string);
+      const sucursalesActivasTransaccionales = asignaciones
+        .filter((row) => row.sucursal_activa === true)
+        .map((row) => row.sucursal_id as string)
+        .filter((sucursalId) => sucursalIdsActivas.includes(sucursalId));
+      if (alcanceTransaccional.length === 0) return null;
+
+      const { rows: protegidos } = await clientDb.query(
+        `SELECT c.id FROM public.cliente c
+         WHERE c.id = $1 AND c.tenant_id = $2
+           AND EXISTS (
+             SELECT 1 FROM public.cliente_sucursal cs
+             WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($3::uuid[])
+           )
+         FOR UPDATE`,
+        [id, tenantId, alcanceTransaccional]
+      );
+      if (!protegidos[0]) return null;
+
+      const { rows: relaciones } = await clientDb.query(
+        `SELECT cs.sucursal_id, s.activo
+         FROM public.cliente_sucursal cs
+         JOIN public.sucursal s ON s.id = cs.sucursal_id AND s.tenant_id = $2
+         WHERE cs.cliente_id = $1
+         ORDER BY cs.sucursal_id
+         FOR UPDATE OF cs`,
+        [id, tenantId]
+      );
+      const actuales = relaciones.map((row) => row.sucursal_id as string);
+      const actualesPropias = actuales.filter((sucursalId) => alcanceTransaccional.includes(sucursalId));
+      let finales = actuales;
+
+      if (sucursal_ids !== undefined) {
+        if (!Array.isArray(sucursal_ids) || !sucursal_ids.every((sucursalId) => typeof sucursalId === 'string')) {
+          throw new BusinessError('La lista de puntos de venta no es válida.');
+        }
+        const deseadas = [...new Set(sucursal_ids)];
+        if (deseadas.some((sucursalId) => !alcanceTransaccional.includes(sucursalId))) {
+          throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+        }
+        const agregadas = deseadas.filter((sucursalId) => !actualesPropias.includes(sucursalId));
+        if (agregadas.some((sucursalId) => !sucursalesActivasTransaccionales.includes(sucursalId))) {
+          throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+        }
+        if (agregadas.length > 0) {
+          const { rows: activas } = await clientDb.query(
+            `SELECT id FROM public.sucursal
+             WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND activo = TRUE`,
+            [agregadas, tenantId]
+          );
+          if (activas.length !== agregadas.length) {
+            throw new CatalogoError('El punto de venta está fuera de tu alcance.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+          }
+        }
+
+        const quitadas = actualesPropias.filter((sucursalId) => !deseadas.includes(sucursalId));
+        if (quitadas.length > 0) {
+          await clientDb.query(
+            'DELETE FROM public.cliente_region WHERE cliente_id = $1 AND sucursal_id = ANY($2::uuid[])',
+            [id, quitadas]
+          );
+          await clientDb.query(
+            'DELETE FROM public.cliente_sucursal WHERE cliente_id = $1 AND sucursal_id = ANY($2::uuid[])',
+            [id, quitadas]
+          );
+        }
+        for (const sucursalId of agregadas) {
+          await clientDb.query(
+            'INSERT INTO public.cliente_sucursal (cliente_id, sucursal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [id, sucursalId]
+          );
+        }
+        finales = [...actuales.filter((sucursalId) => !actualesPropias.includes(sucursalId)), ...deseadas];
+        if (finales.length === 0) {
+          throw new BusinessError('El cliente debe conservar al menos un punto de venta asociado.');
+        }
+      }
+
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      for (const campo of campos) {
+        if (campo in cliente) {
+          values.push((cliente as Record<string, unknown>)[campo]);
+          updates.push(`${campo} = $${values.length}`);
+        }
+      }
+      if (updates.length > 0 || sucursal_ids !== undefined) {
+        updates.push('updated_at = NOW()');
+        await clientDb.query(
+          `UPDATE public.cliente SET ${updates.join(', ')} WHERE id = $${values.length + 1} AND tenant_id = $${values.length + 2}`,
+          [...values, id, tenantId]
+        );
+      }
+
+      const conservaAcceso = finales.some((sucursalId) => alcanceTransaccional.includes(sucursalId));
+      if (!conservaAcceso) return { cliente: null, acceso_revocado: true };
+
+      const { rows: clienteActualizado } = await clientDb.query(
+        `SELECT c.*, ${sucursalesSelect('$3')}
+         FROM public.cliente c
+         WHERE c.id = $1 AND c.tenant_id = $2`,
+        [id, tenantId, alcanceTransaccional]
+      );
+      return { cliente: clienteActualizado[0] ?? null, acceso_revocado: false };
+    });
+  }
+
   /**
    * La baja de un cliente es lógica: no se borra la fila, se marca inactivo.
    * Así el historial comercial que se le asocie más adelante queda intacto.
    */
-  async desactivar(id: string, tenantId: string) {
+  async desactivar(id: string, tenantId: string, sucursalIds?: string[]) {
+    if (sucursalIds && sucursalIds.length === 0) return null;
     const { rows } = await pool.query(
       `UPDATE public.cliente
        SET activo = FALSE, updated_at = NOW()
        WHERE id = $1 AND tenant_id = $2
+         AND ($3::uuid[] IS NULL OR EXISTS (
+           SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = public.cliente.id AND cs.sucursal_id = ANY($3::uuid[])
+         ))
        RETURNING id`,
-      [id, tenantId]
+      [id, tenantId, sucursalIds ?? null]
     );
     if (!rows[0]) return null;
-    return this.findById(id, tenantId);
+    return this.findById(id, tenantId, sucursalIds);
   }
 
   private async reemplazarSucursales(

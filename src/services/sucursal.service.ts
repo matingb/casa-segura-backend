@@ -4,6 +4,7 @@ import { CotizacionRepository } from '../repositories/cotizacion.repository';
 import { withTransaction } from '../utils/db-transaction';
 import { Dinero, decimalValido } from '../utils/moneda';
 import { validarRangoCotizacion } from '../utils/validacion-cotizacion';
+import { exigirSucursal, SucursalAlcance } from './sucursal-alcance.service';
 
 /** El body de alta/edición puede traer las asignaciones de usuarios de la sucursal. */
 export type SucursalInput = SucursalData & { usuarios?: unknown; valor_dolar_version_esperada?: unknown };
@@ -11,8 +12,12 @@ export type SucursalInput = SucursalData & { usuarios?: unknown; valor_dolar_ver
 export class SucursalService {
   private repo = new SucursalRepository();
 
-  async getAll(tenantId: string, authId: string, soloActivas = false) {
-    return this.repo.findAll(tenantId, authId, soloActivas);
+  async getAll(tenantId: string, authId: string, soloActivas = false, sucursalIds?: string[]) {
+    return this.repo.findAll(tenantId, authId, soloActivas, sucursalIds);
+  }
+
+  async getReferenciasGlobales(tenantId: string) {
+    return this.repo.findReferenciasGlobales(tenantId);
   }
 
   async getByUser(authId: string, tenantId: string) {
@@ -33,8 +38,9 @@ export class SucursalService {
     return this.repo.create(tenantId, data, authId, asignaciones);
   }
 
-  async update(id: string, tenantId: string, input: Partial<SucursalInput>, authId: string) {
+  async update(id: string, tenantId: string, input: Partial<SucursalInput>, authId: string, alcance?: SucursalAlcance) {
     const { usuarios, valor_dolar_version_esperada: versionEsperada, ...data } = input;
+    if (alcance) exigirSucursal(alcance, id);
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     await this.verificarAsignado(id, authId);
@@ -86,7 +92,8 @@ export class SucursalService {
     });
   }
 
-  async getUsuariosAsignados(id: string, tenantId: string, authId: string) {
+  async getUsuariosAsignados(id: string, tenantId: string, authId: string, alcance?: SucursalAlcance) {
+    if (alcance) exigirSucursal(alcance, id);
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     return this.repo.findUsuariosAsignados(id, authId);
@@ -94,15 +101,16 @@ export class SucursalService {
 
   /** Lo que necesita el formulario para asignar: usuarios y roles del tenant, y si puede hacerlo. */
   async getOpcionesAsignacion(tenantId: string, authId: string) {
-    const [puedeAdministrar, usuarios, roles] = await Promise.all([
-      this.repo.esAdministrador(authId, tenantId),
-      this.repo.findUsuariosDelTenant(tenantId, authId),
-      this.repo.findRolesDelTenant(tenantId),
+    const puedeAdministrar = await this.repo.esAdministrador(authId, tenantId);
+    if (!puedeAdministrar) return { puede_administrar: false, usuarios: [], roles: [] };
+    const [usuarios, roles] = await Promise.all([
+      this.repo.findUsuariosDelTenant(tenantId, authId), this.repo.findRolesDelTenant(tenantId),
     ]);
     return { puede_administrar: puedeAdministrar, usuarios, roles };
   }
 
-  async desactivar(id: string, tenantId: string, authId: string) {
+  async desactivar(id: string, tenantId: string, authId: string, alcance?: SucursalAlcance) {
+    if (alcance) exigirSucursal(alcance, id);
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     await this.verificarAsignado(id, authId);
@@ -112,7 +120,8 @@ export class SucursalService {
     return this.repo.desactivar(id, tenantId);
   }
 
-  async resumenUso(id: string, tenantId: string) {
+  async resumenUso(id: string, tenantId: string, alcance?: SucursalAlcance) {
+    if (alcance) exigirSucursal(alcance, id);
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     return this.repo.resumenUso(id);

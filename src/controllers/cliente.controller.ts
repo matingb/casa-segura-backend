@@ -1,11 +1,11 @@
 import { Response } from 'express';
 import { ClienteService } from '../services/cliente.service';
 import { ClienteData, ClienteFiltros } from '../repositories/cliente.repository';
-import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
 import { TypedRequest, TypedRequestBody, TypedRequestParams, TypedRequestQuery } from '../types/request.types';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
+import { recursoNoDisponible, resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 
 export interface ClienteQuery {
   limit?: string;
@@ -36,7 +36,8 @@ export class ClienteController {
 
   getAllClientes = async (req: TypedRequestQuery<ClienteQuery>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const tenantId = alcance.tenantId;
       const {
         limit, offset, search, page, sortBy, sortDir,
         filtro_nombre, filtro_tipoCliente, filtro_condicionIva, filtro_provincia,
@@ -56,7 +57,7 @@ export class ClienteController {
           estado: filtro_estado,
         };
         const result = await this.clienteService.getPaginatedWithTotal(
-          tenantId, normalizedLimit, parsedOffset, search, filtros, sortBy, sortDir
+          tenantId, normalizedLimit, parsedOffset, search, filtros, sortBy, sortDir, alcance
         );
         res.status(200).json({
           status: 'success',
@@ -72,15 +73,19 @@ export class ClienteController {
       }
 
       if (limit === undefined) {
-        const clientes = await this.clienteService.getAllClientes(tenantId, operativo === 'true');
+        const clientes = await this.clienteService.getAllClientes(tenantId, operativo === 'true', alcance);
         res.status(200).json(successResponse(clientes));
         return;
       }
       const normalizedLimit = normalizePaginationLimit(limit);
       const parsedOffset = Math.max(0, Number(offset) || 0);
-      const result = await this.clienteService.getPaginated(tenantId, normalizedLimit, parsedOffset, search);
+      const result = await this.clienteService.getPaginated(tenantId, normalizedLimit, parsedOffset, search, alcance);
       res.status(200).json(paginatedResponse(result.items, result.hasMore));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ClienteController] getAllClientes:', error);
       res.status(500).json(errorResponse(message));
@@ -89,15 +94,19 @@ export class ClienteController {
 
   getValoresUnicos = async (req: TypedRequestQuery<ValoresUnicosQuery>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
       const { campo } = req.query;
       if (!campo) {
         res.status(400).json(errorResponse('El parámetro "campo" es requerido'));
         return;
       }
-      const valores = await this.clienteService.getValoresUnicos(tenantId, campo);
+      const valores = await this.clienteService.getValoresUnicos(alcance.tenantId, campo, alcance);
       res.status(200).json(successResponse(valores));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ClienteController] getValoresUnicos:', error);
       res.status(500).json(errorResponse(message));
@@ -106,14 +115,17 @@ export class ClienteController {
 
   getCliente = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const cliente = await this.clienteService.getCliente(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const cliente = await this.clienteService.getCliente(req.params.id, alcance.tenantId, alcance);
       if (!cliente) {
-        res.status(404).json(errorResponse('Cliente no encontrado'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(cliente));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ClienteController] getCliente:', error);
       res.status(500).json(errorResponse(message));
@@ -125,10 +137,14 @@ export class ClienteController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const cliente = await this.clienteService.createCliente(req.body, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const cliente = await this.clienteService.createCliente(req.body, alcance.tenantId, alcance);
       res.status(201).json(successResponse(cliente));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
@@ -144,14 +160,23 @@ export class ClienteController {
     res: Response
   ): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const cliente = await this.clienteService.updateCliente(req.params.id, req.body, tenantId);
-      if (!cliente) {
-        res.status(404).json(errorResponse('Cliente no encontrado'));
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const resultado = await this.clienteService.updateCliente(req.params.id, req.body, alcance.tenantId, alcance);
+      if (!resultado) {
+        throw recursoNoDisponible();
+      }
+      if ('acceso_revocado' in resultado && resultado.acceso_revocado) {
+        res.status(200).json({ status: 'success', data: null, acceso_revocado: true });
         return;
       }
+      const cliente = 'cliente' in resultado ? resultado.cliente : resultado;
+      if (!cliente) throw recursoNoDisponible();
       res.status(200).json(successResponse(cliente));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
@@ -164,14 +189,17 @@ export class ClienteController {
 
   deleteCliente = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const cliente = await this.clienteService.desactivarCliente(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const cliente = await this.clienteService.desactivarCliente(req.params.id, alcance.tenantId, alcance);
       if (!cliente) {
-        res.status(404).json(errorResponse('Cliente no encontrado'));
-        return;
+        throw recursoNoDisponible();
       }
       res.status(200).json(successResponse(cliente));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       if (error instanceof BusinessError) {
         res.status(400).json(errorResponse(error.message));
         return;
