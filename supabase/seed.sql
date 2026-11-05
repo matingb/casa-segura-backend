@@ -1008,8 +1008,9 @@ SET precio_venta_ars     = CASE WHEN ps.moneda_precio_venta = 'USD'
                                 ELSE ROUND(ps.costo_reposicion / COALESCE(s.valor_dolar, t.cotizacion_usd_ars), 4) END
 FROM public.producto p
 JOIN public.tenant t ON t.id = p.tenant_id
-JOIN public.sucursal s ON s.id = ps.sucursal_id AND s.tenant_id = p.tenant_id
-WHERE p.id = ps.producto_id;
+JOIN public.sucursal s ON s.tenant_id = p.tenant_id
+WHERE p.id = ps.producto_id
+  AND s.id = ps.sucursal_id;
 
 -- =============================================================================
 -- 18. SALDOS DE LAS CUENTAS FINANCIERAS
