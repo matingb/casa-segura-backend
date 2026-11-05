@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  Escribir los artefactos en español. Conservar los encabezados estructurales
+  de OpenSpec y las palabras SHALL/MUST, WHEN y THEN en inglés.
+  Casa Segura es un ERP multi-tenant y multi-PDV. En el código PDV se llama sucursal.
+  Backend: Express 5, TypeScript, PostgreSQL mediante pg y Supabase Auth/Storage.
+  Las rutas viven en src/routes; los controladores resuelven tenant y llaman a
+  servicios y repositorios. La identidad proviene de authMiddleware, nunca del body.
+  Las consultas usan el pool de PostgreSQL; no asumir que el JWT del usuario se
+  propaga a la conexión ni que RLS sustituye la autorización del backend.
+  Revisar src y supabase/migrations como evidencia. No inferir el estado de una
+  base remota ni modificar bases, secretos o supabase/config.toml al planificar.
+  El frontend Next.js está en ../casa-segura-frontend y tiene su propio OpenSpec.
+  Para cambios coordinados usar el mismo change-id, enlazar los artefactos pares
+  y mantener consistentes los contratos HTTP y los escenarios de aceptación.
+  Pruebas: Vitest (npm.cmd test). Compilación: npm.cmd run build.
+  Las pruebas unitarias con mocks no demuestran aislamiento efectivo en PostgreSQL.
+
+rules:
+  proposal:
+    - Explicitar alcance, excepciones y exclusiones acordadas con el usuario.
+    - Diferenciar comportamiento observado de decisiones propuestas.
+  specs:
+    - Usar requisitos verificables con SHALL/MUST y escenarios WHEN/THEN.
+    - Cubrir autorización positiva, negativa, identificadores directos y ausencia de efectos ante rechazo.
+    - Mantener los contratos compartidos alineados con el change del frontend.
+  design:
+    - Fundamentar el diseño en archivos y flujos existentes e identificar riesgos y decisiones pendientes.
+    - No convertir una solicitud de especificación en implementación o migración aplicada.
+  tasks:
+    - Usar tareas numeradas y checkboxes sin marcar para trabajo de implementación pendiente.
+    - Separar pruebas unitarias, integración con PostgreSQL y verificación desde el frontend.
