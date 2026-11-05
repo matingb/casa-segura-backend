@@ -2,13 +2,18 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ListaPreciosService } from './lista-precios.service';
 import { pool } from '../config/db';
 
-vi.mock('../config/db', () => ({ pool: { query: vi.fn() } }));
+const db = vi.hoisted(() => ({ query: vi.fn(), connect: vi.fn() }));
+vi.mock('../config/db', () => ({ pool: { query: db.query, connect: db.connect } }));
 vi.mock('../repositories/cotizacion.repository', () => ({ CotizacionRepository: class {
   obtener = async () => ({ cotizacion_usd_ars: '1300.000000', cotizacion_version: '7', actualizada_at: null });
+  obtenerPorSucursal = async () => ({ cotizacion_usd_ars: '1300.000000', cotizacion_version: '7', actualizada_at: null, origen: 'TENANT', sucursal_id: 'sucursal', sucursal_nombre: 'Central' });
 } }));
 
 describe('ListaPreciosService: cero y margen', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    db.connect.mockImplementation(async () => ({ query: db.query, release: vi.fn() }));
+  });
   it('conserva el cero y advierte que no cubre un costo con margen configurado', async () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
       if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central' }] };
@@ -22,7 +27,10 @@ describe('ListaPreciosService: cero y margen', () => {
 });
 
 describe('ListaPreciosService: descuentos generales', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    db.connect.mockImplementation(async () => ({ query: db.query, release: vi.fn() }));
+  });
 
   const producto = {
     id: 'stock', producto_id: 'producto', nombre: 'Cámara domo', moneda_precio_efectiva: 'ARS', precio_efectivo_ars: '10000.00',
@@ -97,6 +105,7 @@ describe('ListaPreciosService: descuentos generales', () => {
 
   it('la lista general aplica solo los niveles generales, sin pedir cliente', async () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       if (sql.includes('descuento_categoria_sucursal')) return { rows: [] };
       if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central', descuento: '5.00' }] };
       if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ ...producto, tipo_descuento_general: '5.00' }] };

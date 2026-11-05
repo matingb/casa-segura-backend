@@ -1,4 +1,5 @@
-import { pool } from '../config/db';
+import { CotizacionRepository } from '../repositories/cotizacion.repository';
+import { withTransaction } from '../utils/db-transaction';
 import {
   calcularCascada,
   calcularPrecioMinimo,
@@ -78,18 +79,13 @@ export class DescuentoEngineService {
     items: EvaluarItemInput[],
     cotizacionVersion?: string
   ): Promise<EvaluacionOperacionResultado> {
-    if (!sucursalId) {
-      throw new BusinessError('La sucursal es obligatoria.');
-    }
+    return withTransaction(async (client) => {
+    if (!sucursalId) throw new BusinessError('La sucursal es obligatoria.');
 
-    // 1. Obtener datos de la sucursal
-    const { rows: sucursalRows } = await pool.query(
-      `SELECT s.id, s.nombre, s.descuento,
-        jsonb_build_object('cotizacion_usd_ars', t.cotizacion_usd_ars::text,
-          'cotizacion_version', t.cotizacion_version::text,
-          'actualizada_at', t.cotizacion_actualizada_at) AS contexto_monetario
-        FROM public.sucursal s JOIN public.tenant t ON t.id = s.tenant_id
-        WHERE s.id = $1 AND s.tenant_id = $2`,
+    const contexto = await new CotizacionRepository().obtenerPorSucursal(tenantId, sucursalId, client);
+    const { rows: sucursalRows } = await client.query(
+      `SELECT s.id, s.nombre, s.descuento
+       FROM public.sucursal s WHERE s.id = $1 AND s.tenant_id = $2`,
       [sucursalId, tenantId]
     );
     const sucursalData = sucursalRows[0];
@@ -97,7 +93,6 @@ export class DescuentoEngineService {
       throw new BusinessError('La sucursal indicada no existe.');
     }
     const descuentoSucursal = sucursalData.descuento != null ? Number(sucursalData.descuento) : 0;
-    const contexto: ContextoMonetario = sucursalData.contexto_monetario ?? { cotizacion_usd_ars: null, cotizacion_version: '0', actualizada_at: null };
     if (cotizacionVersion !== undefined && cotizacionVersion !== contexto.cotizacion_version) {
       throw new CatalogoError('Cambió el valor del dólar. Actualizá la evaluación de precios.', 'COTIZACION_CAMBIO', 409);
     }
@@ -118,7 +113,7 @@ export class DescuentoEngineService {
     let productosClienteMap: Map<string, number> = new Map(); // producto_id -> %
 
     if (clienteId) {
-      const { rows: cliRows } = await pool.query(
+      const { rows: cliRows } = await client.query(
         'SELECT id, nombre, descuento_porcentaje FROM public.cliente WHERE id = $1 AND tenant_id = $2',
         [clienteId, tenantId]
       );
@@ -127,7 +122,7 @@ export class DescuentoEngineService {
         descuentoClienteHabitual = c.descuento_porcentaje != null ? Number(c.descuento_porcentaje) : null;
 
         // Región del cliente para esta sucursal
-        const { rows: regRows } = await pool.query(
+        const { rows: regRows } = await client.query(
           `SELECT r.id, r.nombre, r.descuento
            FROM public.cliente_region cr
            JOIN public.region r ON r.id = cr.region_id
@@ -149,7 +144,7 @@ export class DescuentoEngineService {
         };
 
         // Categorías y subcategorías del cliente
-        const { rows: cdcRows } = await pool.query(
+        const { rows: cdcRows } = await client.query(
           'SELECT tipo_id, subtipo_id, porcentaje FROM public.cliente_descuento_categoria WHERE cliente_id = $1',
           [clienteId]
         );
@@ -159,7 +154,7 @@ export class DescuentoEngineService {
         }
 
         // Productos específicos del cliente
-        const { rows: cdpRows } = await pool.query(
+        const { rows: cdpRows } = await client.query(
           'SELECT producto_id, porcentaje FROM public.cliente_descuento_producto WHERE cliente_id = $1',
           [clienteId]
         );
@@ -239,7 +234,7 @@ export class DescuentoEngineService {
         continue;
       }
 
-      const { rows: prodRows } = await pool.query(query, params);
+      const { rows: prodRows } = await client.query(query, params);
       const prod = prodRows[0];
       if (!prod) continue;
 
@@ -255,7 +250,7 @@ export class DescuentoEngineService {
       let descuentoCategoria: number | null = null;
       if (prod.tipo_id || prod.subtipo_id) {
         // Excepciones de sucursal
-        const { rows: excRows } = await pool.query(
+        const { rows: excRows } = await client.query(
           `SELECT tipo_id, subtipo_id, porcentaje
            FROM public.descuento_categoria_sucursal
            WHERE sucursal_id = $1 AND (tipo_id = $2 OR subtipo_id = $3)`,
@@ -409,5 +404,6 @@ export class DescuentoEngineService {
       resumen,
       contexto_monetario: contexto,
     };
+    });
   }
 }

@@ -2,6 +2,8 @@ import { ProductoSucursalRepository, ProductoSucursalData, ProductoSucursalFiltr
 import { BusinessError } from '../utils/errors';
 import { columnasMonto, escribirConMontos, MontosResueltos, validarContratoPrecio } from './precio-catalogo.service';
 import { Dinero } from '../utils/moneda';
+import { CotizacionRepository } from '../repositories/cotizacion.repository';
+import { withTransaction } from '../utils/db-transaction';
 
 const CAMPOS_PRECIO = ['precio_venta_ars', 'precio_venta_usd', 'moneda_precio_venta', 'precio_referencia_confirmada'];
 const CAMPOS_COSTO = ['costo_reposicion_usd', 'moneda_costo_reposicion'];
@@ -174,7 +176,7 @@ export class ProductoSucursalService {
           { ars: preparado.precio_venta_ars, usd: preparado.precio_venta_usd, moneda: preparado.moneda_precio_venta },
           preparado.margen_minimo);
         return this.repo.create(preparado, tenantId, client);
-      });
+      }, data.sucursal_id);
       if (!item) throw new BusinessError('El producto o la sucursal no pertenecen al tenant actual.');
       return this.repo.findById(item.id, tenantId);
     }
@@ -194,26 +196,37 @@ export class ProductoSucursalService {
     }
     validarCantidades(data);
     data = normalizarMontos(data);
-    // Costo y precio guardados, resueltos por la vista con la cotización actual.
-    const costoActual: Monto = { ars: actual.costo_reposicion_ars_resuelto ?? actual.costo_reposicion, usd: actual.costo_reposicion_usd, moneda: actual.moneda_costo_reposicion };
-    // Precio efectivo: el propio o, si no tiene, el base del producto.
-    const precioActual: Monto = { ars: actual.precio_venta_ars_resuelto, usd: actual.precio_efectivo_usd, moneda: actual.moneda_precio_efectiva };
-    const costoLegado: Monto | null = 'costo_reposicion' in data ? { ars: data.costo_reposicion, usd: null, moneda: 'ARS' } : null;
-    const margen = 'margen_minimo' in data ? data.margen_minimo : actual.margen_minimo;
     if (tieneMontos(data)) {
       await escribirConMontos(tenantId, montosDe(data), async (client, resueltos) => {
+        const actualTransaccional = await this.repo.findById(id, tenantId, client);
+        if (!actualTransaccional) return null;
+        const costoActual: Monto = { ars: actualTransaccional.costo_reposicion_ars_resuelto ?? actualTransaccional.costo_reposicion, usd: actualTransaccional.costo_reposicion_usd, moneda: actualTransaccional.moneda_costo_reposicion };
+        // Precio efectivo: el propio o, si no tiene, el base del producto.
+        const precioActual: Monto = { ars: actualTransaccional.precio_venta_ars_resuelto, usd: actualTransaccional.precio_efectivo_usd, moneda: actualTransaccional.moneda_precio_efectiva };
+        const costoLegado: Monto | null = 'costo_reposicion' in data ? { ars: data.costo_reposicion, usd: null, moneda: 'ARS' } : null;
+        const margen = 'margen_minimo' in data ? data.margen_minimo : actualTransaccional.margen_minimo;
         const columnas = columnasMontos(resueltos);
         margenEntre(
           resueltos.costo ? { ars: columnas.costo_reposicion, usd: columnas.costo_reposicion_usd, moneda: columnas.moneda_costo_reposicion } : costoLegado ?? costoActual,
           resueltos.precio ? { ars: columnas.precio_venta_ars, usd: columnas.precio_venta_usd, moneda: columnas.moneda_precio_venta } : precioActual,
           margen);
         return this.repo.update(id, { ...data, ...columnas }, tenantId, client);
-      });
+      }, actual.sucursal_id);
       return this.repo.findById(id, tenantId);
     }
-    margenEntre(costoLegado ?? costoActual, precioActual, margen);
-    const guardado = await this.repo.update(id, data, tenantId);
-    return guardado ? this.repo.findById(id, tenantId) : null;
+    return withTransaction(async (client) => {
+      // La vista resuelve importes con la tasa protegida hasta guardar el cambio.
+      await new CotizacionRepository().obtenerPorSucursal(tenantId, actual.sucursal_id, client);
+      const actualTransaccional = await this.repo.findById(id, tenantId, client);
+      if (!actualTransaccional) return null;
+      const costoActual: Monto = { ars: actualTransaccional.costo_reposicion_ars_resuelto ?? actualTransaccional.costo_reposicion, usd: actualTransaccional.costo_reposicion_usd, moneda: actualTransaccional.moneda_costo_reposicion };
+      const precioActual: Monto = { ars: actualTransaccional.precio_venta_ars_resuelto, usd: actualTransaccional.precio_efectivo_usd, moneda: actualTransaccional.moneda_precio_efectiva };
+      const costoLegado: Monto | null = 'costo_reposicion' in data ? { ars: data.costo_reposicion, usd: null, moneda: 'ARS' } : null;
+      const margen = 'margen_minimo' in data ? data.margen_minimo : actualTransaccional.margen_minimo;
+      margenEntre(costoLegado ?? costoActual, precioActual, margen);
+      const guardado = await this.repo.update(id, data, tenantId, client);
+      return guardado ? this.repo.findById(id, tenantId, client) : null;
+    });
   }
 
   async eliminar(id: string, tenantId: string) {

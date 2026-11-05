@@ -461,9 +461,14 @@ export class OperacionRepository {
 
   async crear(tenantId: string, authId: string, data: OperacionCrearData) {
     const operacionId = await withTransaction(async (client) => {
-      if (data.cotizacion_version_catalogo !== undefined) {
-        const contexto = await new CotizacionRepository().obtener(tenantId, client);
-        if (data.cotizacion_version_catalogo !== contexto.cotizacion_version) {
+      let contextoVenta: Awaited<ReturnType<CotizacionRepository['obtenerPorSucursal']>> | undefined;
+      if (data.tipo === 'Venta' || data.cotizacion_version_catalogo !== undefined) {
+        if (!data.sucursal_id) throw new CatalogoError('La sucursal es obligatoria para confirmar los precios.', 'CONTEXTO_INVALIDO', 400);
+        contextoVenta = await new CotizacionRepository().obtenerPorSucursal(tenantId, data.sucursal_id, client);
+        if (data.tipo === 'Venta' && (typeof data.cotizacion_version_catalogo !== 'string' || data.cotizacion_version_catalogo.length === 0)) {
+          throw new CatalogoError('Actualizá la evaluación de precios antes de confirmar la venta.', 'COTIZACION_REQUERIDA', 409);
+        }
+        if (data.cotizacion_version_catalogo !== undefined && data.cotizacion_version_catalogo !== contextoVenta.cotizacion_version) {
           throw new CatalogoError('Cambió la cotización del catálogo. Revisá los precios antes de confirmar la operación.', 'COTIZACION_CAMBIO', 409);
         }
       }
@@ -519,7 +524,7 @@ export class OperacionRepository {
           await this.ajustarSaldos(client, cuentasResueltas, 'debito');
           break;
         case 'Venta':
-          await this.validarMargenMinimo(client, data.items ?? [], tenantId, data.cotizacion_version_catalogo);
+          await this.validarMargenMinimo(client, data.items ?? [], tenantId, data.sucursal_id!, data.cotizacion_version_catalogo, contextoVenta!);
           await this.ajustarStockVenta(client, itemsAImpactarAhora);
           await this.ajustarSaldos(client, cuentasResueltas, 'credito');
           break;
@@ -1206,28 +1211,32 @@ export class OperacionRepository {
    * Si el producto no tiene costo de reposición o margen mínimo cargados, no se
    * puede calcular el piso y el ítem no se valida.
    */
-  private async validarMargenMinimo(client: PoolClient, items: OperacionItemInput[], tenantId: string, version?: string) {
+  private async validarMargenMinimo(
+    client: PoolClient,
+    items: OperacionItemInput[],
+    tenantId: string,
+    sucursalId: string,
+    version: string | undefined,
+    contexto: Awaited<ReturnType<CotizacionRepository['obtenerPorSucursal']>>
+  ) {
     for (const item of items) {
       const { rows } = await client.query(
         `SELECT ps.costo_reposicion, ps.costo_reposicion_usd, ps.moneda_costo_reposicion, ps.margen_minimo,
-                p.nombre, ps.moneda_precio_venta, p.moneda_precio_base,
-                t.cotizacion_usd_ars, t.cotizacion_version::text AS cotizacion_version, t.cotizacion_actualizada_at
+                p.nombre, psc.moneda_precio_efectiva
          FROM public.producto_sucursal ps
          JOIN public.producto p ON p.id = ps.producto_id
-         JOIN public.tenant t ON t.id = p.tenant_id
-         WHERE ps.id = $1 AND p.tenant_id = $2`,
-        [item.producto_sucursal_id, tenantId]
+         JOIN public.producto_sucursal_catalogo psc ON psc.id = ps.id
+         WHERE ps.id = $1 AND ps.sucursal_id = $2 AND p.tenant_id = $3`,
+        [item.producto_sucursal_id, sucursalId, tenantId]
       );
       const fila = rows[0];
-      if (!fila) continue; // ajustarStockVenta ya reporta el producto inexistente
+      if (!fila) throw new BusinessError('Cada producto de la venta debe pertenecer a la sucursal seleccionada.');
 
-      if ((fila.moneda_precio_venta === 'USD' || fila.moneda_precio_base === 'USD' || fila.moneda_costo_reposicion === 'USD') && version === undefined) {
+      if ((fila.moneda_precio_efectiva === 'USD' || fila.moneda_costo_reposicion === 'USD') && version === undefined) {
         throw new CatalogoError('La venta usa un precio vinculado a USD. Confirmá la cotización del catálogo antes de registrarla.', 'COTIZACION_REQUERIDA', 409);
       }
 
-      const costoArs = costoArsVigente(fila.moneda_costo_reposicion, fila.costo_reposicion, fila.costo_reposicion_usd, {
-        cotizacion_usd_ars: fila.cotizacion_usd_ars, cotizacion_version: fila.cotizacion_version, actualizada_at: fila.cotizacion_actualizada_at,
-      });
+      const costoArs = costoArsVigente(fila.moneda_costo_reposicion, fila.costo_reposicion, fila.costo_reposicion_usd, contexto);
       const costo = costoArs !== null ? Number(costoArs) : null;
       const margen = fila.margen_minimo !== null ? Number(fila.margen_minimo) : null;
       const precioMinimo = calcularPrecioMinimo(costo, margen);

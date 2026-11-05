@@ -7,7 +7,10 @@ import { errorResponse, successResponse } from '../utils/response';
 const service = new CotizacionService();
 export class CotizacionController {
   obtener = async (req: Request, res: Response) => {
-    try { res.json(successResponse(await service.obtener(await getTenantIdByAuthId(req.user!.id), req.user!.id))); }
+    try {
+      const sucursalId = typeof req.query.sucursal_id === 'string' ? req.query.sucursal_id : undefined;
+      res.json(successResponse(await service.obtener(await getTenantIdByAuthId(req.user!.id), req.user!.id, sucursalId)));
+    }
     catch (error) { this.error(error, res); }
   };
   actualizar = async (req: Request, res: Response) => {

@@ -1,6 +1,7 @@
-import { pool } from '../config/db';
 import Decimal from 'decimal.js';
+import { PoolClient } from 'pg';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
+import { withTransaction } from '../utils/db-transaction';
 import { CatalogoError } from '../utils/errors';
 import { calcularCascada, EntradaCascada, resolverDescuentoProducto } from '../utils/cascada-descuentos';
 import { resolverDescuento } from './descuento-categoria.service';
@@ -14,43 +15,50 @@ const numero = (valor: unknown) => (valor == null ? null : Number(valor));
 export class ListaPreciosService {
   /** Lista de un cliente: los niveles generales más los propios del cliente. */
   async obtener(tenantId: string, sucursalId: string, clienteId: string) {
-    const { rows: clientes } = await pool.query('SELECT id, nombre, descuento_porcentaje FROM public.cliente WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [clienteId, tenantId]);
-    if (!clientes[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
-    const [categorias, descuentos, regiones] = await Promise.all([
-      pool.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.cliente_descuento_categoria WHERE cliente_id = $1', [clienteId]),
-      pool.query('SELECT producto_id, porcentaje FROM public.cliente_descuento_producto WHERE cliente_id = $1', [clienteId]),
-      pool.query(`SELECT r.nombre, r.descuento FROM public.cliente_region cr
-        JOIN public.region r ON r.id = cr.region_id AND r.tenant_id = $3 AND r.activo = TRUE
-        WHERE cr.cliente_id = $1 AND cr.sucursal_id = $2`, [clienteId, sucursalId, tenantId]),
-    ]);
-    const tipos = new Map<string, string>();
-    const subtipos = new Map<string, string>();
-    for (const row of categorias.rows) {
-      if (row.subtipo_id) subtipos.set(row.subtipo_id, row.porcentaje);
-      else if (row.tipo_id) tipos.set(row.tipo_id, row.porcentaje);
-    }
-    const especiales = new Map(descuentos.rows.map((row) => [row.producto_id, row.porcentaje]));
-    const region = regiones.rows[0];
-    const lista = await this.calcular(tenantId, sucursalId, (row) => ({
-      descuentoRegionCliente: numero(region?.descuento),
-      descuentoCategoriaCliente: numero((row.subtipo_id ? subtipos.get(row.subtipo_id) : undefined) ?? (row.tipo_id ? tipos.get(row.tipo_id) : undefined)),
-      descuentoProductoCliente: numero(especiales.get(row.producto_id)),
-      descuentoCliente: numero(clientes[0].descuento_porcentaje),
-    }));
-    return { ...lista, cliente: { ...clientes[0], regionNombre: region?.nombre ?? null, regionDescuento: region?.descuento ?? null } };
+    return withTransaction(async (client) => {
+      const contexto = await new CotizacionRepository().obtenerPorSucursal(tenantId, sucursalId, client);
+      const { rows: clientes } = await client.query('SELECT id, nombre, descuento_porcentaje FROM public.cliente WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [clienteId, tenantId]);
+      if (!clientes[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
+      const [categorias, descuentos, regiones] = await Promise.all([
+        client.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.cliente_descuento_categoria WHERE cliente_id = $1', [clienteId]),
+        client.query('SELECT producto_id, porcentaje FROM public.cliente_descuento_producto WHERE cliente_id = $1', [clienteId]),
+        client.query(`SELECT r.nombre, r.descuento FROM public.cliente_region cr
+          JOIN public.region r ON r.id = cr.region_id AND r.tenant_id = $3 AND r.activo = TRUE
+          WHERE cr.cliente_id = $1 AND cr.sucursal_id = $2`, [clienteId, sucursalId, tenantId]),
+      ]);
+      const tipos = new Map<string, string>();
+      const subtipos = new Map<string, string>();
+      for (const row of categorias.rows) {
+        if (row.subtipo_id) subtipos.set(row.subtipo_id, row.porcentaje);
+        else if (row.tipo_id) tipos.set(row.tipo_id, row.porcentaje);
+      }
+      const especiales = new Map(descuentos.rows.map((row) => [row.producto_id, row.porcentaje]));
+      const region = regiones.rows[0];
+      const lista = await this.calcular(tenantId, sucursalId, client, contexto, (row) => ({
+        descuentoRegionCliente: numero(region?.descuento),
+        descuentoCategoriaCliente: numero((row.subtipo_id ? subtipos.get(row.subtipo_id) : undefined) ?? (row.tipo_id ? tipos.get(row.tipo_id) : undefined)),
+        descuentoProductoCliente: numero(especiales.get(row.producto_id)),
+        descuentoCliente: numero(clientes[0].descuento_porcentaje),
+      }));
+      return { ...lista, cliente: { ...clientes[0], regionNombre: region?.nombre ?? null, regionDescuento: region?.descuento ?? null } };
+    });
   }
 
   /** Lista general de una sucursal: solo los niveles que valen para todos los clientes. */
   async obtenerGeneral(tenantId: string, sucursalId: string) {
-    return this.calcular(tenantId, sucursalId, () => ({}));
+    return withTransaction(async (client) => {
+      const contexto = await new CotizacionRepository().obtenerPorSucursal(tenantId, sucursalId, client);
+      return this.calcular(tenantId, sucursalId, client, contexto, () => ({}));
+    });
   }
 
-  private async calcular(tenantId: string, sucursalId: string, nivelesCliente: (row: FilaProducto) => NivelesCliente) {
-    const { rows: sucursales } = await pool.query('SELECT id, nombre, descuento FROM public.sucursal WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [sucursalId, tenantId]);
+  private async calcular(tenantId: string, sucursalId: string, client: PoolClient,
+    contexto: Awaited<ReturnType<CotizacionRepository['obtenerPorSucursal']>>,
+    nivelesCliente: (row: FilaProducto) => NivelesCliente) {
+    const { rows: sucursales } = await client.query('SELECT id, nombre, descuento FROM public.sucursal WHERE id = $1 AND tenant_id = $2 AND activo = TRUE', [sucursalId, tenantId]);
     if (!sucursales[0]) throw new CatalogoError('Cliente o sucursal no disponible para esta empresa.', 'CONTEXTO_INVALIDO', 404);
-    const [contexto, productos, excepciones] = await Promise.all([
-      new CotizacionRepository().obtener(tenantId),
-      pool.query(`SELECT ps.*, p.codigo, p.nombre, p.marca, p.modelo, p.subtipo_id, p.descuento_base,
+    const [productos, excepciones] = await Promise.all([
+      client.query(`SELECT ps.*, p.codigo, p.nombre, p.marca, p.modelo, p.subtipo_id, p.descuento_base,
         st.tipo_id, st.nombre AS subtipo_nombre,
         st.descuento_general AS subtipo_descuento_general, t.descuento_general AS tipo_descuento_general
         FROM public.producto_sucursal_catalogo ps JOIN public.producto p ON p.id = ps.producto_id
@@ -59,7 +67,7 @@ export class ListaPreciosService {
         WHERE ps.sucursal_id = $1 AND p.tenant_id = $2 AND p.activo = TRUE
           AND ps.habilitado = TRUE AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
         ORDER BY p.nombre, ps.id`, [sucursalId, tenantId]),
-      pool.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.descuento_categoria_sucursal WHERE sucursal_id = $1', [sucursalId]),
+      client.query('SELECT tipo_id, subtipo_id, porcentaje FROM public.descuento_categoria_sucursal WHERE sucursal_id = $1', [sucursalId]),
     ]);
     const excepcionesSucursal = (campo: 'tipo_id' | 'subtipo_id', id: string | null) =>
       excepciones.rows.filter((e) => id && e[campo] === id).map((e) => ({ sucursalId, porcentaje: Number(e.porcentaje) }));

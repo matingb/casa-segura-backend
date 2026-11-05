@@ -20,9 +20,13 @@ export interface MontosResueltos { precio?: PrecioResuelto; costo?: PrecioResuel
  * vigente. Solo se resuelven los montos presentes en `montos`.
  */
 export async function escribirConMontos<T>(tenantId: string, montos: MontosCatalogo,
-  guardar: (client: PoolClient, resueltos: MontosResueltos, contexto: ContextoMonetario) => Promise<T>): Promise<T> {
+  guardar: (client: PoolClient, resueltos: MontosResueltos, contexto: ContextoMonetario) => Promise<T>,
+  sucursalId?: string): Promise<T> {
   return withTransaction(async (client) => {
-    const contexto = await new CotizacionRepository().obtener(tenantId, client);
+    const cotizaciones = new CotizacionRepository();
+    const contexto = sucursalId
+      ? await cotizaciones.obtenerPorSucursal(tenantId, sucursalId, client)
+      : await cotizaciones.obtener(tenantId, client);
     return guardar(client, {
       ...('precio' in montos ? { precio: prepararPrecio(montos.precio ?? null, contexto) } : {}),
       ...('costo' in montos ? { costo: prepararCosto(montos.costo ?? null, contexto) } : {}),

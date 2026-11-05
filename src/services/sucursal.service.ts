@@ -1,9 +1,12 @@
 import { SucursalRepository, SucursalData, AsignacionUsuario } from '../repositories/sucursal.repository';
 import { BusinessError, CatalogoError } from '../utils/errors';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
+import { withTransaction } from '../utils/db-transaction';
+import { Dinero, decimalValido } from '../utils/moneda';
+import { validarRangoCotizacion } from '../utils/validacion-cotizacion';
 
 /** El body de alta/edición puede traer las asignaciones de usuarios de la sucursal. */
-export type SucursalInput = SucursalData & { usuarios?: unknown };
+export type SucursalInput = SucursalData & { usuarios?: unknown; valor_dolar_version_esperada?: unknown };
 
 export class SucursalService {
   private repo = new SucursalRepository();
@@ -21,18 +24,17 @@ export class SucursalService {
   }
 
   async create(tenantId: string, input: SucursalInput, authId: string) {
-    const { usuarios, ...data } = input;
+    const { usuarios, valor_dolar_version_esperada: _version, ...data } = input;
     if (!(await this.repo.esAdministrador(authId, tenantId))) {
       throw new CatalogoError('Solo un administrador puede crear sucursales.', 'SIN_PERMISO', 403);
     }
     this.validar(data);
-    if (data.valor_dolar != null) await this.validarDolarHeredado(tenantId, data);
     const asignaciones = usuarios === undefined ? undefined : await this.prepararAsignaciones(tenantId, authId, usuarios, null);
     return this.repo.create(tenantId, data, authId, asignaciones);
   }
 
   async update(id: string, tenantId: string, input: Partial<SucursalInput>, authId: string) {
-    const { usuarios, ...data } = input;
+    const { usuarios, valor_dolar_version_esperada: versionEsperada, ...data } = input;
     const sucursal = await this.repo.findById(id, tenantId);
     if (!sucursal) return null;
     await this.verificarAsignado(id, authId);
@@ -41,15 +43,47 @@ export class SucursalService {
       ? undefined
       : await this.prepararAsignaciones(tenantId, authId, usuarios, await this.repo.findUsuariosAsignados(id, authId));
 
-    if (data.valor_dolar !== undefined && (data.valor_dolar === null ? sucursal.valor_dolar != null : Number(data.valor_dolar) !== Number(sucursal.valor_dolar))) {
-      await this.validarDolarHeredado(tenantId, data);
-    }
-
     // Reactivar siempre se puede; desactivar pasa por las mismas reglas que la baja.
     if (data.activo === false && sucursal.activo) {
       await this.verificarPuedeDesactivar(id, tenantId, sucursal);
     }
-    return this.repo.update(id, tenantId, data, asignaciones);
+    if (!('valor_dolar' in data)) return this.repo.update(id, tenantId, data, asignaciones);
+
+    return withTransaction(async (client) => {
+      // El orden tenant → PDV también lo usan el cambio general y las escrituras de catálogo.
+      const general = await new CotizacionRepository().obtener(tenantId, client);
+      const { rows } = await client.query(
+        `SELECT valor_dolar::text, valor_dolar_version::text
+         FROM public.sucursal WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+        [id, tenantId]
+      );
+      const actual = rows[0];
+      if (!actual) return null;
+      const actualDolar = actual.valor_dolar == null ? null : new Dinero(actual.valor_dolar);
+      const nuevoDolar = data.valor_dolar == null ? null : new Dinero(data.valor_dolar);
+      const cambioTasa = actualDolar === null
+        ? nuevoDolar !== null
+        : nuevoDolar === null || !actualDolar.eq(nuevoDolar);
+
+      if (cambioTasa) {
+        if (typeof versionEsperada !== 'string' || !/^\d+$/.test(versionEsperada)) {
+          throw new CatalogoError('Indicá la versión de cotización del PDV que estás actualizando.', 'VERSION_INVALIDA');
+        }
+        if (actual.valor_dolar_version !== versionEsperada) {
+          throw new CatalogoError('La cotización de este PDV fue actualizada por otra persona. Recargá la referencia antes de guardar.', 'COTIZACION_CAMBIO', 409);
+        }
+        const tasaEfectiva = data.valor_dolar ?? general.cotizacion_usd_ars;
+        if (tasaEfectiva == null) {
+          throw new CatalogoError('Configurá una cotización general antes de quitar la cotización propia de este PDV.', 'COTIZACION_REQUERIDA');
+        }
+        await validarRangoCotizacion(client, tenantId, tasaEfectiva, id);
+      }
+
+      const cambios = cambioTasa ? data : { ...data, valor_dolar: undefined };
+      if (!cambioTasa) delete (cambios as Partial<SucursalData>).valor_dolar;
+      if (!cambioTasa && Object.keys(cambios).length === 0 && !asignaciones) return sucursal;
+      return this.repo.update(id, tenantId, cambios, asignaciones, client, cambioTasa ? authId : undefined);
+    });
   }
 
   async getUsuariosAsignados(id: string, tenantId: string, authId: string) {
@@ -181,10 +215,7 @@ export class SucursalService {
     }
 
     if (data.valor_dolar !== undefined && data.valor_dolar !== null) {
-      const valor = Number(data.valor_dolar);
-      if (!Number.isFinite(valor) || valor < 0) {
-        throw new BusinessError('El valor del dólar debe ser un número positivo.');
-      }
+      data.valor_dolar = decimalValido(data.valor_dolar, 'La cotización del PDV', 6, 12, true).toFixed(6);
     }
 
     if (data.descuento !== undefined && data.descuento !== null) {
@@ -195,11 +226,4 @@ export class SucursalService {
     }
   }
 
-  private async validarDolarHeredado(tenantId: string, data: Partial<SucursalData>) {
-    if (!('valor_dolar' in data)) return;
-    const contexto = await new CotizacionRepository().obtener(tenantId);
-    if (contexto.cotizacion_usd_ars !== null) {
-      throw new BusinessError('El dólar se configura para toda la empresa en Configuración → Cotización. El valor anterior de sucursal se conserva como histórico.');
-    }
-  }
 }

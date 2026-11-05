@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts'],
     env: {
-      SUPABASE_URL: 'http://localhost:54321',
+      SUPABASE_URL: 'http://localhost:55321',
       SUPABASE_KEY: 'test-key',
       SUPABASE_SERVICE_ROLE_KEY: 'test-role-key',
       DB_URL: 'postgres://test:test@localhost:5432/test',

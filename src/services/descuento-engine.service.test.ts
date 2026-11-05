@@ -2,11 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DescuentoEngineService } from './descuento-engine.service';
 import { pool } from '../config/db';
 
+const db = vi.hoisted(() => ({ query: vi.fn(), connect: vi.fn() }));
+
 vi.mock('../config/db', () => ({
   pool: {
-    query: vi.fn(),
+    query: db.query,
+    connect: db.connect,
   },
 }));
+vi.mock('../repositories/cotizacion.repository', () => ({ CotizacionRepository: class {
+  obtenerPorSucursal = async () => ({ cotizacion_usd_ars: '1000.000000', cotizacion_version: '1', actualizada_at: null, origen: 'TENANT', sucursal_id: 'suc-1', sucursal_nombre: 'Central' });
+} }));
 
 describe('DescuentoEngineService', () => {
   let service: DescuentoEngineService;
@@ -16,6 +22,7 @@ describe('DescuentoEngineService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    db.connect.mockImplementation(async () => ({ query: db.query, release: vi.fn() }));
     service = new DescuentoEngineService();
   });
 

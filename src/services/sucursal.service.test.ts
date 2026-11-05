@@ -3,9 +3,14 @@ import { SucursalService } from './sucursal.service';
 import { SucursalRepository } from '../repositories/sucursal.repository';
 import { BusinessError } from '../utils/errors';
 import { CotizacionRepository } from '../repositories/cotizacion.repository';
+import { validarRangoCotizacion } from '../utils/validacion-cotizacion';
+
+const tx = vi.hoisted(() => ({ query: vi.fn() }));
 
 vi.mock('../repositories/sucursal.repository');
 vi.mock('../repositories/cotizacion.repository');
+vi.mock('../utils/validacion-cotizacion', () => ({ validarRangoCotizacion: vi.fn() }));
+vi.mock('../utils/db-transaction', () => ({ withTransaction: async (fn: (client: { query: typeof tx.query }) => unknown) => fn({ query: tx.query }) }));
 
 describe('SucursalService', () => {
   let service: SucursalService;
@@ -15,6 +20,8 @@ describe('SucursalService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: null, cotizacion_version: '0', actualizada_at: null });
+    tx.query.mockReset();
+    vi.mocked(validarRangoCotizacion).mockResolvedValue(undefined);
     service = new SucursalService();
     vi.mocked(SucursalRepository.prototype.contarActivas).mockResolvedValue(3);
     vi.mocked(SucursalRepository.prototype.estaAsignado).mockResolvedValue(true);
@@ -29,19 +36,20 @@ describe('SucursalService', () => {
       expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
     });
 
-    it('impide cargar un dólar por sucursal cuando existe referencia central', async () => {
+    it('permite una cotización propia aunque exista una referencia general', async () => {
       vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: '1200.000000', cotizacion_version: '1', actualizada_at: null });
-      await expect(service.create(TENANT, { nombre: 'Sur', valor_dolar: 1300 }, AUTH)).rejects.toThrow('El dólar se configura para toda la empresa');
-      expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
+      vi.mocked(SucursalRepository.prototype.create).mockResolvedValue({ id: 's1' } as any);
+      await service.create(TENANT, { nombre: 'Sur', valor_dolar: '1300' }, AUTH);
+      expect(SucursalRepository.prototype.create).toHaveBeenCalledWith(TENANT, { nombre: 'Sur', valor_dolar: '1300.000000' }, AUTH, undefined);
     });
     it('crea con los datos validados', async () => {
       vi.mocked(SucursalRepository.prototype.create).mockResolvedValue({ id: 's1' } as any);
 
-      await service.create(TENANT, { nombre: 'Sucursal Sur', valor_dolar: 1200, descuento: 5 }, AUTH);
+      await service.create(TENANT, { nombre: 'Sucursal Sur', valor_dolar: '1200', descuento: 5 }, AUTH);
 
       expect(SucursalRepository.prototype.create).toHaveBeenCalledWith(TENANT, {
         nombre: 'Sucursal Sur',
-        valor_dolar: 1200,
+        valor_dolar: '1200.000000',
         descuento: 5,
       }, AUTH, undefined);
     });
@@ -53,10 +61,10 @@ describe('SucursalService', () => {
       expect(SucursalRepository.prototype.create).not.toHaveBeenCalled();
     });
 
-    it('rechaza un valor del dólar negativo', async () => {
+    it('rechaza una cotización propia inválida', async () => {
       await expect(
-        service.create(TENANT, { nombre: 'Sur', valor_dolar: -10 }, AUTH)
-      ).rejects.toThrow('El valor del dólar debe ser un número positivo.');
+        service.create(TENANT, { nombre: 'Sur', valor_dolar: '-10' }, AUTH)
+      ).rejects.toMatchObject({ code: 'IMPORTE_INVALIDO' });
     });
 
     it('rechaza un descuento fuera de rango', async () => {
@@ -91,6 +99,39 @@ describe('SucursalService', () => {
       await service.update('s1', TENANT, { descuento: 8 }, AUTH);
 
       expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { descuento: 8 }, undefined);
+    });
+
+    it('cambia una cotización propia con la versión local y valida el rango del PDV', async () => {
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: true } as any);
+      vi.mocked(SucursalRepository.prototype.update).mockResolvedValue({ id: 's1', valor_dolar: '1300.000000' } as any);
+      vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: '1200.000000', cotizacion_version: '5', actualizada_at: null });
+      tx.query.mockResolvedValueOnce({ rows: [{ valor_dolar: null, valor_dolar_version: '4' }] });
+
+      await service.update('s1', TENANT, { valor_dolar: '1300', valor_dolar_version_esperada: '4' }, AUTH);
+
+      expect(validarRangoCotizacion).toHaveBeenCalledWith(expect.anything(), TENANT, '1300.000000', 's1');
+      expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { valor_dolar: '1300.000000' }, undefined, expect.anything(), AUTH);
+    });
+
+    it('al quitar la particular valida con la cotización general vigente', async () => {
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: true } as any);
+      vi.mocked(SucursalRepository.prototype.update).mockResolvedValue({ id: 's1', valor_dolar: null } as any);
+      vi.mocked(CotizacionRepository.prototype.obtener).mockResolvedValue({ cotizacion_usd_ars: '1400.000000', cotizacion_version: '8', actualizada_at: null });
+      tx.query.mockResolvedValueOnce({ rows: [{ valor_dolar: '1300.000000', valor_dolar_version: '6' }] });
+
+      await service.update('s1', TENANT, { valor_dolar: null, valor_dolar_version_esperada: '6' }, AUTH);
+
+      expect(validarRangoCotizacion).toHaveBeenCalledWith(expect.anything(), TENANT, '1400.000000', 's1');
+      expect(SucursalRepository.prototype.update).toHaveBeenCalledWith('s1', TENANT, { valor_dolar: null }, undefined, expect.anything(), AUTH);
+    });
+
+    it('rechaza un cambio de particular con versión local desactualizada', async () => {
+      vi.mocked(SucursalRepository.prototype.findById).mockResolvedValue({ id: 's1', activo: true } as any);
+      tx.query.mockResolvedValueOnce({ rows: [{ valor_dolar: null, valor_dolar_version: '3' }] });
+
+      await expect(service.update('s1', TENANT, { valor_dolar: '1300', valor_dolar_version_esperada: '2' }, AUTH))
+        .rejects.toMatchObject({ status: 409, code: 'COTIZACION_CAMBIO' });
+      expect(SucursalRepository.prototype.update).not.toHaveBeenCalled();
     });
 
     it('rechaza con 403 si el usuario no está asignado a la sucursal', async () => {

@@ -147,10 +147,8 @@ VALUES
 -- =============================================================================
 -- 3b. COTIZACIÓN DE REFERENCIA (CAS-54)
 -- =============================================================================
--- Valor manual del dólar para toda la empresa, cargado por el administrador.
--- Es la única fuente del tipo de cambio del seed: la sección 17 deriva de acá
--- los equivalentes ARS/USD de todos los precios y costos del catálogo, y las
--- operaciones generadas en la sección 16 lo usan para valuar en ARS.
+-- Valor manual general del dólar, cargado por el administrador. Los PDV que
+-- heredan lo usan; Sucursal Norte configura una excepción más abajo.
 UPDATE public.tenant
 SET cotizacion_usd_ars         = 1450.000000,
     cotizacion_actualizada_at  = NOW(),
@@ -161,13 +159,15 @@ WHERE id = '00000000-0000-0000-0000-000000000001';
 -- =============================================================================
 -- 4. SUCURSALES
 -- =============================================================================
--- valor_dolar queda en NULL: el dólar por sucursal fue reemplazado por la
--- cotización de empresa y solo se conserva para datos heredados.
+-- Casa Central hereda la tasa general; Sucursal Norte usa su propia cotización.
 -- descuento: nivel 1 de la cascada de la lista de precios.
-INSERT INTO public.sucursal (id, tenant_id, nombre, es_central, valor_dolar, descuento, activo)
+INSERT INTO public.sucursal (
+    id, tenant_id, nombre, es_central, valor_dolar, descuento, activo,
+    valor_dolar_version, valor_dolar_actualizada_at, valor_dolar_actualizada_por
+)
 VALUES
-    ('00000000-0000-0000-0000-000000000020', '00000000-0000-0000-0000-000000000001', 'Casa Central',    TRUE,  NULL, NULL, TRUE),
-    ('00000000-0000-0000-0000-000000000021', '00000000-0000-0000-0000-000000000001', 'Sucursal Norte',  FALSE, NULL, 2.00, TRUE);
+    ('00000000-0000-0000-0000-000000000020', '00000000-0000-0000-0000-000000000001', 'Casa Central',    TRUE,  NULL,       NULL,  TRUE,  0, NULL, NULL),
+    ('00000000-0000-0000-0000-000000000021', '00000000-0000-0000-0000-000000000001', 'Sucursal Norte',  FALSE, 1500.000000, 2.00, TRUE,  1, NOW(), '00000000-0000-0000-0000-000000000010');
 
 -- =============================================================================
 -- 5. ROLES
@@ -721,12 +721,14 @@ DECLARE
     v_nombre TEXT;
     v_modelo TEXT;
     v_moneda TEXT;
+    v_cotizacion_norte NUMERIC;
     -- Importes principales, en la moneda de referencia del producto
     v_costo NUMERIC;
     v_precio NUMERIC;
     v_precio_norte NUMERIC;
     -- Equivalentes ARS para las operaciones históricas
     v_costo_ars NUMERIC;
+    v_costo_venta_ars NUMERIC;
     v_precio_venta_ars NUMERIC;
     v_venta_en_norte BOOLEAN;
     v_subtotal NUMERIC;
@@ -742,6 +744,9 @@ DECLARE
     ];
 BEGIN
     SELECT cotizacion_usd_ars INTO v_cotizacion FROM public.tenant WHERE id = v_tenant_id;
+    SELECT COALESCE(s.valor_dolar, t.cotizacion_usd_ars) INTO v_cotizacion_norte
+    FROM public.sucursal s JOIN public.tenant t ON t.id = s.tenant_id
+    WHERE s.id = v_suc_norte AND t.id = v_tenant_id;
 
     -- Generar 70 productos adicionales (PROD-006 a PROD-075)
     FOR v_i IN 6..75 LOOP
@@ -856,8 +861,11 @@ BEGIN
                 -- VENTA: la registra el vendedor de la sucursal de la que sale el stock
                 v_venta_en_norte := (v_i % 3 = 0);
                 v_precio_venta_ars := CASE WHEN v_venta_en_norte THEN v_precio_norte ELSE v_precio END;
+                v_costo_venta_ars := CASE WHEN v_venta_en_norte THEN
+                    CASE WHEN v_moneda = 'USD' THEN ROUND(v_costo * v_cotizacion_norte, 2) ELSE v_costo END
+                    ELSE v_costo_ars END;
                 IF v_moneda = 'USD' THEN
-                    v_precio_venta_ars := ROUND(v_precio_venta_ars * v_cotizacion, 2);
+                    v_precio_venta_ars := ROUND(v_precio_venta_ars * CASE WHEN v_venta_en_norte THEN v_cotizacion_norte ELSE v_cotizacion END, 2);
                 END IF;
                 v_subtotal := v_precio_venta_ars * 2;
                 v_total := ROUND(v_subtotal * 1.21, 2);
@@ -884,7 +892,7 @@ BEGIN
                     21,
                     v_total - v_subtotal,
                     v_precio_venta_ars,
-                    v_costo_ars
+                    v_costo_venta_ars
                 );
 
                 INSERT INTO public.venta (
@@ -987,19 +995,20 @@ WHERE t.id = p.tenant_id;
 
 UPDATE public.producto_sucursal ps
 SET precio_venta_ars     = CASE WHEN ps.moneda_precio_venta = 'USD'
-                                THEN ROUND(ps.precio_venta_usd * t.cotizacion_usd_ars, 2)
+                                THEN ROUND(ps.precio_venta_usd * COALESCE(s.valor_dolar, t.cotizacion_usd_ars), 2)
                                 ELSE ps.precio_venta_ars END,
     precio_venta_usd     = CASE WHEN ps.moneda_precio_venta = 'USD'
                                 THEN ps.precio_venta_usd
-                                ELSE ROUND(ps.precio_venta_ars / t.cotizacion_usd_ars, 4) END,
+                                ELSE ROUND(ps.precio_venta_ars / COALESCE(s.valor_dolar, t.cotizacion_usd_ars), 4) END,
     costo_reposicion     = CASE WHEN ps.moneda_costo_reposicion = 'USD'
-                                THEN ROUND(ps.costo_reposicion_usd * t.cotizacion_usd_ars, 2)
+                                THEN ROUND(ps.costo_reposicion_usd * COALESCE(s.valor_dolar, t.cotizacion_usd_ars), 2)
                                 ELSE ps.costo_reposicion END,
     costo_reposicion_usd = CASE WHEN ps.moneda_costo_reposicion = 'USD'
                                 THEN ps.costo_reposicion_usd
-                                ELSE ROUND(ps.costo_reposicion / t.cotizacion_usd_ars, 4) END
+                                ELSE ROUND(ps.costo_reposicion / COALESCE(s.valor_dolar, t.cotizacion_usd_ars), 4) END
 FROM public.producto p
 JOIN public.tenant t ON t.id = p.tenant_id
+JOIN public.sucursal s ON s.id = ps.sucursal_id AND s.tenant_id = p.tenant_id
 WHERE p.id = ps.producto_id;
 
 -- =============================================================================

@@ -5,7 +5,7 @@ import { withTransaction } from '../utils/db-transaction';
 export interface SucursalData {
   nombre: string;
   es_central?: boolean;
-  valor_dolar?: number | null;
+  valor_dolar?: string | null;
   descuento?: number | null;
   activo?: boolean;
 }
@@ -60,6 +60,9 @@ export class SucursalRepository {
              s.nombre,
              s.es_central,
              s.valor_dolar,
+             s.valor_dolar_version,
+             s.valor_dolar_actualizada_at,
+             s.valor_dolar_actualizada_por,
              s.descuento,
              s.activo,
              us.id AS usuario_sucursal_id,
@@ -95,8 +98,16 @@ export class SucursalRepository {
         );
       }
       const { rows } = await client.query(
-        `INSERT INTO public.sucursal (tenant_id, nombre, es_central, valor_dolar, descuento, activo)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO public.sucursal (
+           tenant_id, nombre, es_central, valor_dolar, descuento, activo,
+           valor_dolar_version, valor_dolar_actualizada_at, valor_dolar_actualizada_por
+         )
+         VALUES ($1, $2, $3, $4, $5, $6,
+           CASE WHEN $4::numeric IS NULL THEN 0 ELSE 1 END,
+           CASE WHEN $4::numeric IS NULL THEN NULL ELSE NOW() END,
+           CASE WHEN $4::numeric IS NULL THEN NULL ELSE
+             (SELECT u.id FROM public.usuario u WHERE u.auth_id = $7 AND u.tenant_id = $1) END
+         )
          RETURNING *`,
         [
           tenantId,
@@ -105,6 +116,7 @@ export class SucursalRepository {
           data.valor_dolar ?? null,
           data.descuento ?? null,
           data.activo ?? true,
+          authId,
         ]
       );
       const sucursal = rows[0];
@@ -128,7 +140,14 @@ export class SucursalRepository {
     });
   }
 
-  async update(id: string, tenantId: string, data: Partial<SucursalData>, usuarios?: AsignacionUsuario[]) {
+  async update(
+    id: string,
+    tenantId: string,
+    data: Partial<SucursalData>,
+    usuarios?: AsignacionUsuario[],
+    transactionClient?: PoolClient,
+    authId?: string
+  ) {
     const fields = ['nombre', 'es_central', 'valor_dolar', 'descuento', 'activo'];
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -142,12 +161,20 @@ export class SucursalRepository {
     }
     if (updates.length === 0 && !usuarios) return null;
 
-    return withTransaction(async (client) => {
+    const ejecutar = async (client: PoolClient) => {
       if (data.es_central) {
         await client.query(
           'UPDATE public.sucursal SET es_central = FALSE, updated_at = NOW() WHERE tenant_id = $1 AND es_central = TRUE AND id <> $2',
           [tenantId, id]
         );
+      }
+      if ('valor_dolar' in data) {
+        updates.push('valor_dolar_version = valor_dolar_version + 1', 'valor_dolar_actualizada_at = NOW()');
+        const authIndex = idx++;
+        values.push(authId ?? null);
+        const tenantIndex = idx++;
+        values.push(tenantId);
+        updates.push(`valor_dolar_actualizada_por = (SELECT u.id FROM public.usuario u WHERE u.auth_id = $${authIndex} AND u.tenant_id = $${tenantIndex})`);
       }
       updates.push('updated_at = NOW()');
       const { rows } = await client.query(
@@ -159,7 +186,8 @@ export class SucursalRepository {
       );
       if (rows[0] && usuarios) await this.sincronizarUsuarios(client, id, usuarios);
       return rows[0] ?? null;
-    });
+    };
+    return transactionClient ? ejecutar(transactionClient) : withTransaction(ejecutar);
   }
 
   /**

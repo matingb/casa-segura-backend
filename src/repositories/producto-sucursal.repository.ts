@@ -270,13 +270,13 @@ export class ProductoSucursalRepository {
     return rows.map((r) => r.valor);
   }
 
-  async findById(id: string, tenantId: string) {
+  async findById(id: string, tenantId: string, client?: PoolClient) {
     const query = `
       ${JOIN_QUERY}
       WHERE ps.id = $1 AND p.tenant_id = $2 AND p.deleted_at IS NULL AND ps.deleted_at IS NULL
       LIMIT 1
     `;
-    const { rows } = await pool.query(query, [id, tenantId]);
+    const { rows } = await (client ?? pool).query(query, [id, tenantId]);
     return rows[0] ?? null;
   }
 

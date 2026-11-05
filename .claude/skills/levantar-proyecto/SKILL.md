@@ -51,7 +51,7 @@ npx supabase start
 - Si ya está corriendo, el comando lo indica y no hace nada malo (es idempotente).
 - Al terminar, imprime las URLs y keys (API URL, anon key, service_role key, etc).
   Estas deben coincidir con `SUPABASE_URL` y `SUPABASE_KEY` del `.env` del proyecto
-  (API en `http://127.0.0.1:54321`, DB en `127.0.0.1:54322`, project_id `casa_segura`).
+  (API en `http://127.0.0.1:55321`, DB en `127.0.0.1:55322`, project_id `casa_segura`).
   Si detectás que difieren, avisá al usuario antes de continuar.
 
 ## 4. Correr migraciones pendientes

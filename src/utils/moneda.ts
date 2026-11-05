@@ -7,6 +7,9 @@ export interface ContextoMonetario {
   cotizacion_usd_ars: string | null;
   cotizacion_version: string;
   actualizada_at: string | null;
+  origen?: 'TENANT' | 'SUCURSAL';
+  sucursal_id?: string | null;
+  sucursal_nombre?: string | null;
   actualizada_por?: string | null;
   actualizada_por_nombre?: string | null;
 }
