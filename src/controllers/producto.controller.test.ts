@@ -137,7 +137,7 @@ describe('ProductoController', () => {
 
       await controller.createProducto(req, res as Response);
 
-      expect(ProductoService.prototype.createProducto).toHaveBeenCalledWith(req.body, TENANT_ID);
+      expect(ProductoService.prototype.createProducto).toHaveBeenCalledWith(req.body, TENANT_ID, undefined);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockProducto));
     });
@@ -152,7 +152,7 @@ describe('ProductoController', () => {
 
       await controller.updateProducto(req, res as Response);
 
-      expect(ProductoService.prototype.updateProducto).toHaveBeenCalledWith('prod-1', req.body, TENANT_ID);
+      expect(ProductoService.prototype.updateProducto).toHaveBeenCalledWith('prod-1', req.body, TENANT_ID, undefined);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockProducto));
     });

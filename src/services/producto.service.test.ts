@@ -1,13 +1,48 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProductoService } from './producto.service';
 import { ProductoRepository } from '../repositories/producto.repository';
+import { deleteProductImage, getPublicUrl, uploadProductImage } from './storage.service';
 
 vi.mock('../repositories/producto.repository');
-vi.mock('./storage.service', () => ({ uploadProductImage: vi.fn(), getPublicUrl: vi.fn() }));
+vi.mock('./storage.service', () => ({ uploadProductImage: vi.fn(), getPublicUrl: vi.fn(), deleteProductImage: vi.fn() }));
 
 const duplicado = Object.assign(new Error('duplicate key value violates unique constraint'), {
   code: '23505',
   constraint: 'producto_tenant_id_codigo_key',
+});
+
+describe('ProductoService: reemplazo de imagen', () => {
+  const imagen = { buffer: Buffer.from('imagen de prueba'), mimetype: 'image/png' };
+  const path = 'tenant/p1/nueva';
+  const url = 'https://storage.example.test/productos/' + path;
+  const service = new ProductoService();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(ProductoRepository.prototype.findById).mockResolvedValue({ id: 'p1' });
+    vi.mocked(uploadProductImage).mockResolvedValue(path);
+    vi.mocked(getPublicUrl).mockReturnValue(url);
+    vi.mocked(deleteProductImage).mockResolvedValue(undefined);
+  });
+
+  it('guarda la nueva URL junto con el resto de la edición', async () => {
+    vi.mocked(ProductoRepository.prototype.update).mockResolvedValue({ id: 'p1', imagen_url: url });
+
+    await service.updateProducto('p1', { nombre: 'Cámara', imagen_url: 'anterior' }, 'tenant', imagen);
+
+    expect(uploadProductImage).toHaveBeenCalledWith('tenant', 'p1', imagen.buffer, imagen.mimetype);
+    expect(ProductoRepository.prototype.update).toHaveBeenCalledWith('p1', { nombre: 'Cámara', imagen_url: url }, 'tenant');
+    expect(deleteProductImage).not.toHaveBeenCalled();
+  });
+
+  it('limpia solo la imagen nueva cuando la edición falla por código duplicado', async () => {
+    vi.mocked(ProductoRepository.prototype.update).mockRejectedValue(duplicado);
+
+    await expect(service.updateProducto('p1', { codigo: 'CAM-001' }, 'tenant', imagen))
+      .rejects.toMatchObject({ code: 'CODIGO_PRODUCTO_DUPLICADO' });
+
+    expect(deleteProductImage).toHaveBeenCalledExactlyOnceWith(path);
+  });
 });
 
 describe('ProductoService: código único', () => {

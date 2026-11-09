@@ -151,7 +151,7 @@ export class ProductoController {
   ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const producto = await this.productoService.createProducto(req.body, tenantId);
+      const producto = await this.productoService.createProducto(req.body, tenantId, req.file);
       res.status(201).json(successResponse(producto));
     } catch (error: unknown) {
       if (error instanceof CatalogoError) {
@@ -177,7 +177,8 @@ export class ProductoController {
       const producto = await this.productoService.updateProducto(
         req.params.id,
         req.body,
-        tenantId
+        tenantId,
+        req.file,
       );
       if (!producto) {
         res.status(404).json(errorResponse('Producto no encontrado'));

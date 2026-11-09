@@ -1,5 +1,5 @@
 import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositories/producto.repository';
-import { uploadProductImage, getPublicUrl } from './storage.service';
+import { deleteProductImage, uploadProductImage, getPublicUrl } from './storage.service';
 import { BusinessError, CatalogoError } from '../utils/errors';
 import { columnasMonto, escribirConMontos, MontosResueltos, validarContratoPrecio } from './precio-catalogo.service';
 
@@ -39,6 +39,33 @@ const montosDe = (data: Partial<ProductoData>) => ({
   ...('precio' in data ? { precio: data.precio ?? null } : {}),
   ...('costo' in data ? { costo: data.costo ?? null } : {}),
 });
+
+type ImagenProducto = Pick<Express.Multer.File, 'buffer' | 'mimetype'>;
+
+async function guardarConImagen<T>(
+  tenantId: string,
+  productoId: string | undefined,
+  imagen: ImagenProducto | undefined,
+  guardar: (imagenUrl?: string) => Promise<T>,
+): Promise<T> {
+  if (!imagen) return guardar();
+
+  const path = await uploadProductImage(tenantId, productoId, imagen.buffer, imagen.mimetype);
+  const limpiar = () => deleteProductImage(path).catch((error: unknown) => {
+    console.warn('[ProductoService] No se pudo limpiar la imagen nueva:', error);
+  });
+  let resultado: T;
+  try {
+    resultado = await guardar(getPublicUrl(path));
+  } catch (error) {
+    const codigo = (error as { code?: string })?.code ?? '';
+    // Si se perdió la conexión al confirmar, la escritura pudo haberse aplicado.
+    if (error instanceof BusinessError || /^(22|23|40)[A-Z0-9]{3}$/.test(codigo)) await limpiar();
+    throw error;
+  }
+  if (!resultado) await limpiar();
+  return resultado;
+}
 
 /**
  * El código es único por empresa, también contra productos eliminados (la
@@ -108,39 +135,43 @@ export class ProductoService {
     }
   }
 
-  async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
-    return conCodigoUnico(data.codigo, () => this.crear(data, tenantId));
+  async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string, imagen?: ImagenProducto) {
+    return conCodigoUnico(data.codigo, () => this.crear(data, tenantId, imagen));
   }
 
-  private async crear(data: Omit<ProductoData, 'tenant_id'>, tenantId: string) {
+  private async crear(data: Omit<ProductoData, 'tenant_id'>, tenantId: string, imagen?: ImagenProducto) {
     this.validarDescuentoBase(data.descuento_base);
     data = normalizarMontos(data);
-    if (tieneMontos(data)) {
-      const producto = await escribirConMontos(tenantId, montosDe(data), (client, resueltos) =>
-        this.productoRepository.create({ ...data, tenant_id: tenantId, ...columnasMontos(resueltos) }, client));
-      return this.productoRepository.findById(producto.id, tenantId);
-    }
-    const producto = await this.productoRepository.create({ ...data, tenant_id: tenantId });
+    const producto = await guardarConImagen(tenantId, undefined, imagen, (imagenUrl) => {
+      const datos = { ...data, tenant_id: tenantId, ...(imagenUrl ? { imagen_url: imagenUrl } : {}) };
+      if (tieneMontos(datos)) {
+        return escribirConMontos(tenantId, montosDe(datos), (client, resueltos) =>
+          this.productoRepository.create({ ...datos, ...columnasMontos(resueltos) }, client));
+      }
+      return this.productoRepository.create(datos);
+    });
     return this.productoRepository.findById(producto.id, tenantId);
   }
 
-  async updateProducto(id: string, data: Partial<ProductoData>, tenantId: string) {
-    return conCodigoUnico(data.codigo, () => this.actualizar(id, data, tenantId));
+  async updateProducto(id: string, data: Partial<ProductoData>, tenantId: string, imagen?: ImagenProducto) {
+    return conCodigoUnico(data.codigo, () => this.actualizar(id, data, tenantId, imagen));
   }
 
-  private async actualizar(id: string, data: Partial<ProductoData>, tenantId: string) {
+  private async actualizar(id: string, data: Partial<ProductoData>, tenantId: string, imagen?: ImagenProducto) {
     const producto = await this.productoRepository.findById(id, tenantId);
     if (!producto) return null;
     if ('descuento_base' in data) {
       this.validarDescuentoBase(data.descuento_base);
     }
     data = normalizarMontos(data);
-    if (tieneMontos(data)) {
-      await escribirConMontos(tenantId, montosDe(data), (client, resueltos) =>
-        this.productoRepository.update(id, { ...data, ...columnasMontos(resueltos) }, tenantId, client));
-      return this.productoRepository.findById(id, tenantId);
-    }
-    const guardado = await this.productoRepository.update(id, data, tenantId);
+    const guardado = await guardarConImagen(tenantId, id, imagen, (imagenUrl) => {
+      const datos = { ...data, ...(imagenUrl ? { imagen_url: imagenUrl } : {}) };
+      if (tieneMontos(datos)) {
+        return escribirConMontos(tenantId, montosDe(datos), (client, resueltos) =>
+          this.productoRepository.update(id, { ...datos, ...columnasMontos(resueltos) }, tenantId, client));
+      }
+      return this.productoRepository.update(id, datos, tenantId);
+    });
     return guardado ? this.productoRepository.findById(id, tenantId) : null;
   }
 
@@ -150,9 +181,8 @@ export class ProductoService {
 
     const storagePath = await uploadProductImage(tenantId, id, buffer, mimetype);
     const publicUrl = getPublicUrl(storagePath);
-    await this.productoRepository.updateImagePath(id, publicUrl, tenantId);
-    
-    return publicUrl;
+    const guardado = await this.productoRepository.updateImagePath(id, publicUrl, tenantId);
+    return guardado ? publicUrl : null;
   }
 
   async eliminarProducto(id: string, tenantId: string) {

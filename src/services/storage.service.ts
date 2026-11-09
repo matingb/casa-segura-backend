@@ -1,21 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import { supabaseAdmin } from '../config/supabase-admin';
 
 const BUCKET = 'productos';
 
 export async function uploadProductImage(
   tenantId: string,
-  productoId: string,
+  productoId: string | undefined,
   buffer: Buffer,
   mimetype: string
 ): Promise<string> {
 
-  const storagePath = `${tenantId}/${productoId}`;
+  const storagePath = `${tenantId}/${productoId ?? 'nuevos'}/${randomUUID()}`;
 
   const { error } = await supabaseAdmin.storage
     .from(BUCKET)
     .upload(storagePath, buffer, {
       contentType: mimetype,
-      upsert: true,
     });
 
   if (error) {
