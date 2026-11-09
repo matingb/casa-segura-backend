@@ -37,6 +37,7 @@ describe('AuthController', () => {
       vi.mocked(AuthService.prototype.signIn).mockResolvedValue({
         user: { id: 'u-1', email: 'a@b.com' },
         accessToken: 'token-abc',
+        refreshToken: 'refresh-xyz',
         expiresIn: 3600,
       } as any);
 
@@ -46,6 +47,11 @@ describe('AuthController', () => {
         'access_token',
         'token-abc',
         expect.objectContaining({ httpOnly: true, maxAge: 3600 * 1000 })
+      );
+      expect(res.cookie).toHaveBeenCalledWith(
+        'refresh_token',
+        'refresh-xyz',
+        expect.objectContaining({ httpOnly: true })
       );
       expect(res.status).toHaveBeenCalledWith(200);
     });
@@ -95,6 +101,57 @@ describe('AuthController', () => {
     });
   });
 
+  describe('refresh', () => {
+    it('debería retornar 401 si no hay refresh_token en cookies', async () => {
+      req.cookies = {};
+
+      await controller.refresh(req, res as Response);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
+
+    it('debería retornar 200 y refrescar cookies con un refresh_token válido', async () => {
+      req.cookies = { refresh_token: 'valid-refresh' };
+      vi.mocked(AuthService.prototype.refreshSession).mockResolvedValue({
+        user: { id: 'u-1', email: 'a@b.com' },
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+        expiresIn: 3600,
+      } as any);
+
+      await controller.refresh(req, res as Response);
+
+      expect(res.cookie).toHaveBeenCalledWith(
+        'access_token',
+        'new-access-token',
+        expect.objectContaining({ httpOnly: true, maxAge: 3600 * 1000 })
+      );
+      expect(res.cookie).toHaveBeenCalledWith(
+        'refresh_token',
+        'new-refresh-token',
+        expect.objectContaining({ httpOnly: true })
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'success',
+        data: { user: { id: 'u-1', email: 'a@b.com' } },
+      });
+    });
+
+    it('debería limpiar cookies y retornar 401 si el refresh token expiró o es inválido', async () => {
+      req.cookies = { refresh_token: 'expired-refresh' };
+      vi.mocked(AuthService.prototype.refreshSession).mockRejectedValue(
+        new AuthApiError('Invalid Refresh Token', 400, 'invalid_grant')
+      );
+
+      await controller.refresh(req, res as Response);
+
+      expect(res.clearCookie).toHaveBeenCalledWith('access_token', expect.any(Object));
+      expect(res.clearCookie).toHaveBeenCalledWith('refresh_token', expect.any(Object));
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
+  });
+
   describe('logout', () => {
     it('debería limpiar la cookie y retornar 200', async () => {
       req.cookies = { access_token: 'token-abc' };
@@ -103,6 +160,7 @@ describe('AuthController', () => {
       await controller.logout(req, res as Response);
 
       expect(res.clearCookie).toHaveBeenCalledWith('access_token', expect.any(Object));
+      expect(res.clearCookie).toHaveBeenCalledWith('refresh_token', expect.any(Object));
       expect(res.status).toHaveBeenCalledWith(200);
     });
   });

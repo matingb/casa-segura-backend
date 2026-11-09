@@ -7,4 +7,9 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('FATAL: Missing required SUPABASE_URL or SUPABASE_KEY environment variables.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});

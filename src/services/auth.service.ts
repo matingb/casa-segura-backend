@@ -1,8 +1,15 @@
 import { supabase } from '../config/supabase';
 import { AuthError, User } from '@supabase/supabase-js';
 
+export interface AuthSessionResult {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
 export class AuthService {
-  async signIn(email: string, password: string): Promise<{ user: User; accessToken: string; expiresIn: number }> {
+  async signIn(email: string, password: string): Promise<AuthSessionResult> {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) throw error;
@@ -11,6 +18,21 @@ export class AuthService {
     return {
       user: data.user,
       accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      expiresIn: data.session.expires_in ?? 3600,
+    };
+  }
+
+  async refreshSession(refreshToken: string): Promise<AuthSessionResult> {
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+
+    if (error) throw error;
+    if (!data.session || !data.user) throw new AuthError('No session was created after refresh.');
+
+    return {
+      user: data.user,
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
       expiresIn: data.session.expires_in ?? 3600,
     };
   }
