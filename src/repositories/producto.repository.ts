@@ -22,6 +22,7 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   marca: 'p.marca',
   modelo: 'p.modelo',
   subtipo: 'sub.nombre',
+  costoReposicionBase: 'p.costo_reposicion_base_ars_resuelto',
   precioBase: 'p.precio_base_ars_resuelto',
   precioBaseArs: 'p.precio_base_ars_resuelto',
   precioBaseUsd: 'p.precio_base_usd_resuelto',
