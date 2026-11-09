@@ -31,7 +31,6 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
 }));
-app.use('/api/productos/aumento-masivo', express.json({ limit: '2mb' }));
 app.use(express.json());
 app.use(cookieParser());
 

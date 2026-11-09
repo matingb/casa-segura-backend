@@ -93,7 +93,7 @@ export function validarCantidades(data: Partial<Pick<ProductoSucursalData, 'cant
 
 type Monto = { ars: unknown; usd: unknown; moneda: unknown };
 
-export function margenEntre(costo: Monto, precio: Monto, margen: unknown) {
+function margenEntre(costo: Monto, precio: Monto, margen: unknown) {
   const ambosUsd = costo.moneda === 'USD' && precio.moneda === 'USD' && costo.usd != null && precio.usd != null;
   validarMargenMinimoConfiguracion({
     costo_reposicion: costo.ars as number | null,
