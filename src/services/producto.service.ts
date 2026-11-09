@@ -1,6 +1,6 @@
 import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositories/producto.repository';
 import { uploadProductImage, getPublicUrl } from './storage.service';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
 import { columnasMonto, escribirConMontos, MontosResueltos, validarContratoPrecio } from './precio-catalogo.service';
 
 const CAMPOS_PRECIO = ['precio_base', 'precio_base_usd', 'moneda_precio_base'];
@@ -50,7 +50,11 @@ async function conCodigoUnico<T>(codigo: unknown, guardar: () => Promise<T>): Pr
   } catch (error: unknown) {
     const pg = error as { code?: string; constraint?: string };
     if (pg?.code === '23505' && pg.constraint === 'producto_tenant_id_codigo_key') {
-      throw new BusinessError(`Ya existe un producto con el código "${String(codigo ?? '').trim()}" (puede estar eliminado). Usá otro código.`);
+      throw new CatalogoError(
+        `Ya existe un producto con el código "${String(codigo ?? '').trim()}" (puede estar eliminado). Usá otro código.`,
+        'CODIGO_PRODUCTO_DUPLICADO',
+        409,
+      );
     }
     throw error;
   }
