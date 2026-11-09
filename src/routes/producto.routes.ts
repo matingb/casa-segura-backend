@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { ProductoController } from '../controllers/producto.controller';
+import { confirmarAumento, previsualizarAumento } from '../controllers/aumento-precios.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { errorResponse } from '../utils/response';
 
@@ -58,6 +59,8 @@ const recibirProducto: RequestHandler = (req, res, next) => {
 router.get('/',                 authMiddleware, productoController.getAllProductos);
 router.get('/valores-unicos',   authMiddleware, productoController.getValoresUnicos);
 router.get('/:id',              authMiddleware, productoController.getProducto);
+router.post('/aumento-masivo/vista-previa', authMiddleware, previsualizarAumento);
+router.post('/aumento-masivo', authMiddleware, confirmarAumento);
 router.post('/',    authMiddleware, recibirProducto, productoController.createProducto);
 router.patch('/:id', authMiddleware, recibirProducto, productoController.updateProducto);
 router.patch('/:id/imagen', authMiddleware, recibirImagen, productoController.uploadImage);
