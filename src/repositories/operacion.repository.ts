@@ -356,7 +356,7 @@ export class OperacionRepository {
       SELECT o.*,
              to2.nombre   AS tipo_nombre,
              u.nombre     AS usuario_nombre,
-             u.email      AS usuario_email,
+             au.email     AS usuario_email,
              s.nombre     AS sucursal_nombre,
              us.sucursal_id AS sucursal_id,
              -- Venta
@@ -384,6 +384,7 @@ export class OperacionRepository {
       JOIN public.usuario_sucursal us  ON us.id  = o.usuario_sucursal_id
       JOIN public.usuario           u  ON u.id   = us.usuario_id
       JOIN public.sucursal          s  ON s.id   = us.sucursal_id
+      LEFT JOIN auth.users au ON au.id = u.auth_id
       LEFT JOIN public.venta v ON v.operacion_id = o.id
       LEFT JOIN public.compra c ON c.operacion_id = o.id
       LEFT JOIN public.proveedor prov ON prov.id = c.proveedor_id

@@ -137,12 +137,12 @@ export class SucursalRepository {
       );
       const sucursal = rows[0];
       if (usuarios) {
-        await this.sincronizarUsuarios(client, sucursal.id, usuarios);
+        await this.sincronizarUsuarios(client, sucursal.id, tenantId, usuarios);
         return { ...sucursal, asignado: true };
       }
       const { rows: asignacion } = await client.query(
-        `INSERT INTO public.usuario_sucursal (usuario_id, sucursal_id, id_rol)
-         SELECT u.id, $2, COALESCE(
+        `INSERT INTO public.usuario_sucursal (usuario_id, sucursal_id, tenant_id, id_rol)
+         SELECT u.id, $2, u.tenant_id, COALESCE(
            (SELECT r.id FROM public.rol r WHERE r.tenant_id = u.tenant_id AND r.nombre = 'Administrador' LIMIT 1),
            (SELECT us.id_rol FROM public.usuario_sucursal us WHERE us.usuario_id = u.id AND us.activo = TRUE LIMIT 1)
          )
@@ -200,7 +200,7 @@ export class SucursalRepository {
          RETURNING *`,
         [...values, id, tenantId]
       );
-      if (rows[0] && usuarios) await this.sincronizarUsuarios(client, id, usuarios);
+      if (rows[0] && usuarios) await this.sincronizarUsuarios(client, id, tenantId, usuarios);
       return rows[0] ?? null;
     };
     return transactionClient ? ejecutar(transactionClient) : withTransaction(ejecutar);
@@ -209,8 +209,14 @@ export class SucursalRepository {
   /**
    * Deja la sucursal con exactamente estas asignaciones. Quitar es baja lógica
    * (las operaciones apuntan a la asignación); volver a asignar la reactiva.
+   * La base rechaza (FK compuesta) un usuario o un rol de otro tenant que la sucursal.
    */
-  private async sincronizarUsuarios(client: PoolClient, sucursalId: string, usuarios: AsignacionUsuario[]) {
+  private async sincronizarUsuarios(
+    client: PoolClient,
+    sucursalId: string,
+    tenantId: string,
+    usuarios: AsignacionUsuario[]
+  ) {
     const ids = usuarios.map((u) => u.usuario_id);
     await client.query(
       `UPDATE public.usuario_sucursal SET activo = FALSE
@@ -218,23 +224,27 @@ export class SucursalRepository {
       [sucursalId, ids]
     );
     await client.query(
-      `INSERT INTO public.usuario_sucursal (usuario_id, sucursal_id, id_rol)
-       SELECT a.usuario_id, $1, a.id_rol
+      `INSERT INTO public.usuario_sucursal (usuario_id, sucursal_id, tenant_id, id_rol)
+       SELECT a.usuario_id, $1, $4, a.id_rol
        FROM unnest($2::uuid[], $3::uuid[]) AS a(usuario_id, id_rol)
        ON CONFLICT (usuario_id, sucursal_id)
        DO UPDATE SET id_rol = EXCLUDED.id_rol, activo = TRUE`,
-      [sucursalId, ids, usuarios.map((u) => u.id_rol)]
+      [sucursalId, ids, usuarios.map((u) => u.id_rol), tenantId]
     );
   }
 
-  /** Usuarios asignados (activos) a la sucursal; `es_actual` marca al autenticado. */
+  /**
+   * Usuarios asignados (activos) a la sucursal; `es_actual` marca al autenticado.
+   * El email sale de su cuenta de Auth.
+   */
   async findUsuariosAsignados(sucursalId: string, authId: string) {
     const { rows } = await pool.query(
-      `SELECT u.id AS usuario_id, u.nombre, u.email, us.id_rol, r.nombre AS rol_nombre,
+      `SELECT u.id AS usuario_id, u.nombre, au.email, us.id_rol, r.nombre AS rol_nombre,
               (u.auth_id = $2) AS es_actual
        FROM public.usuario_sucursal us
        JOIN public.usuario u ON u.id = us.usuario_id
        JOIN public.rol r     ON r.id = us.id_rol
+       LEFT JOIN auth.users au ON au.id = u.auth_id
        WHERE us.sucursal_id = $1 AND us.activo = TRUE
        ORDER BY u.nombre`,
       [sucursalId, authId]
@@ -242,13 +252,17 @@ export class SucursalRepository {
     return rows;
   }
 
-  /** Usuarios activos del tenant que se pueden asignar; `es_actual` marca al autenticado. */
+  /**
+   * Usuarios activos del tenant que se pueden asignar; `es_actual` marca al
+   * autenticado. El email sale de su cuenta de Auth.
+   */
   async findUsuariosDelTenant(tenantId: string, authId: string) {
     const { rows } = await pool.query(
-      `SELECT id, nombre, email, (auth_id = $2) AS es_actual
-       FROM public.usuario
-       WHERE tenant_id = $1 AND activo = TRUE
-       ORDER BY nombre`,
+      `SELECT u.id, u.nombre, au.email, (u.auth_id = $2) AS es_actual
+       FROM public.usuario u
+       LEFT JOIN auth.users au ON au.id = u.auth_id
+       WHERE u.tenant_id = $1 AND u.activo = TRUE
+       ORDER BY u.nombre`,
       [tenantId, authId]
     );
     return rows as { id: string; nombre: string; email: string | null; es_actual: boolean }[];

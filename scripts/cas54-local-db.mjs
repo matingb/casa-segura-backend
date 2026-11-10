@@ -15,7 +15,7 @@ try {
 source.pathname = `/${database}`;
 const target = new Pool({ connectionString: source.toString() });
 try {
-  await target.query(`CREATE SCHEMA auth; CREATE TABLE auth.users (id UUID PRIMARY KEY);
+  await target.query(`CREATE SCHEMA auth; CREATE TABLE auth.users (id UUID PRIMARY KEY, email VARCHAR(255));
     CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS
     $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
     GRANT USAGE ON SCHEMA auth TO authenticated, service_role;
