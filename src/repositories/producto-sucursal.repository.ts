@@ -47,6 +47,7 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   cantidadDisponible: 'ps.cantidad_disponible',
   cantidadReservada: 'ps.cantidad_reservada',
   stockMinimo: 'ps.stock_minimo',
+  costoReposicion: 'ps.costo_reposicion_ars_resuelto',
   precioVentaArs: 'ps.precio_venta_ars_resuelto',
   precioVentaUsd: 'ps.precio_venta_usd_resuelto',
   precioArs: 'ps.precio_venta_ars_resuelto',

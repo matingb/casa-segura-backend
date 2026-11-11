@@ -10,6 +10,7 @@ export interface ClienteFiltros {
   tipoCliente?: string;
   condicionIva?: string;
   provincia?: string;
+  region?: string;
   sucursal?: string;
   estado?: string;
 }
@@ -182,14 +183,27 @@ export class ClienteRepository {
       params.push(filtros.provincia);
       filterClauses.push(`c.provincia = $${params.length}`);
     }
-    if (filtros?.sucursal) {
-      params.push(filtros.sucursal);
+    if (filtros?.sucursal || filtros?.region) {
+      const condiciones = [];
+      if (filtros.sucursal) {
+        params.push(filtros.sucursal);
+        condiciones.push(`AND s.nombre = $${params.length}`);
+      }
+      if (filtros.region) {
+        params.push(filtros.region);
+        condiciones.push(`AND EXISTS (
+          SELECT 1 FROM public.cliente_region cr
+          JOIN public.region r ON r.id = cr.region_id AND r.tenant_id = $1
+          WHERE cr.cliente_id = c.id AND cr.sucursal_id = cs.sucursal_id AND r.nombre = $${params.length}
+        )`);
+      }
       filterClauses.push(
         `EXISTS (
            SELECT 1 FROM public.cliente_sucursal cs
-           JOIN public.sucursal s ON s.id = cs.sucursal_id
-           WHERE cs.cliente_id = c.id AND s.nombre = $${params.length}
+           JOIN public.sucursal s ON s.id = cs.sucursal_id AND s.tenant_id = $1
+           WHERE cs.cliente_id = c.id
              AND ($2::uuid[] IS NULL OR cs.sucursal_id = ANY($2::uuid[]))
+             ${condiciones.join(' ')}
          )`
       );
     }
@@ -256,6 +270,20 @@ export class ClienteRepository {
          WHERE c.tenant_id = $1 AND ($2::uuid[] IS NULL OR EXISTS (
            SELECT 1 FROM public.cliente_sucursal cs WHERE cs.cliente_id = c.id AND cs.sucursal_id = ANY($2::uuid[])
          )) AND c.tipo_cliente IS NOT NULL ORDER BY valor`, [tenantId, sucursalIds ?? null]
+      );
+      return rows.map((r) => r.valor);
+    }
+
+    if (campo === 'region') {
+      const { rows } = await pool.query(
+        `SELECT DISTINCT r.nombre AS valor
+         FROM public.region r
+         JOIN public.region_sucursal rs ON rs.region_id = r.id
+         JOIN public.sucursal s ON s.id = rs.sucursal_id AND s.tenant_id = $1
+         WHERE r.tenant_id = $1
+           AND ($2::uuid[] IS NULL OR rs.sucursal_id = ANY($2::uuid[]))
+         ORDER BY valor`,
+        [tenantId, sucursalIds ?? null]
       );
       return rows.map((r) => r.valor);
     }

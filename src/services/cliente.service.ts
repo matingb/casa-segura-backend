@@ -1,6 +1,7 @@
 import { ClienteRepository, ClienteData, ClienteFiltros } from '../repositories/cliente.repository';
 import { BusinessError } from '../utils/errors';
 import { exigirSucursal, SucursalAlcance } from './sucursal-alcance.service';
+import { normalizarProvincia, PROVINCIAS_ARGENTINAS } from '../utils/provincias-argentina';
 
 export class ClienteService {
   private clienteRepository: ClienteRepository;
@@ -31,6 +32,7 @@ export class ClienteService {
   }
 
   async getValoresUnicos(tenantId: string, campo: string, alcance?: SucursalAlcance) {
+    if (campo === 'provincia') return [...PROVINCIAS_ARGENTINAS];
     return this.clienteRepository.findValoresUnicos(tenantId, campo, alcance?.sucursalIds);
   }
 
@@ -39,6 +41,7 @@ export class ClienteService {
   }
 
   async createCliente(data: Omit<ClienteData, 'tenant_id'>, tenantId: string, alcance?: SucursalAlcance) {
+    data = this.normalizarProvinciaCliente(data);
     if (data.sucursal_ids !== undefined && !Array.isArray(data.sucursal_ids)) {
       throw new BusinessError('La lista de puntos de venta no es válida.');
     }
@@ -65,6 +68,7 @@ export class ClienteService {
   async updateCliente(id: string, data: Partial<ClienteData>, tenantId: string, alcance?: SucursalAlcance) {
     const cliente = await this.clienteRepository.findById(id, tenantId, alcance?.sucursalIds);
     if (!cliente) return null;
+    data = this.normalizarProvinciaCliente(data, cliente.provincia);
     if (alcance) {
       if (data.sucursal_ids !== undefined && (!Array.isArray(data.sucursal_ids) || data.sucursal_ids.some((sucursalId) => typeof sucursalId !== 'string'))) {
         throw new BusinessError('La lista de puntos de venta no es válida.');
@@ -121,5 +125,18 @@ export class ClienteService {
     if (invalidas.length > 0) {
       throw new BusinessError('Alguna de las sucursales seleccionadas no existe.');
     }
+  }
+
+  private normalizarProvinciaCliente<T extends Partial<ClienteData>>(data: T, provinciaAnterior?: string | null): T {
+    if (!('provincia' in data)) return data;
+    const provincia = normalizarProvincia(data.provincia);
+    if (provincia !== undefined) return { ...data, provincia };
+    // Un valor anterior desconocido puede conservarse al editar otros datos.
+    if (data.provincia === provinciaAnterior) {
+      const resto = { ...data };
+      delete resto.provincia;
+      return resto;
+    }
+    throw new BusinessError('Seleccioná una provincia argentina válida o dejá el campo sin especificar.');
   }
 }

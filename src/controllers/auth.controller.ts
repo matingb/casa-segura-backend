@@ -1,7 +1,12 @@
 import { Request, Response } from 'express';
 import { isAuthError } from '@supabase/supabase-js';
 import { AuthService } from '../services/auth.service';
-import { AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS } from '../config/cookie';
+import {
+  AUTH_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  REFRESH_COOKIE_MAX_AGE,
+  AUTH_COOKIE_OPTIONS,
+} from '../config/cookie';
 import { successResponse, errorResponse } from '../utils/response';
 
 const authService = new AuthService();
@@ -16,12 +21,19 @@ export class AuthController {
     }
 
     try {
-      const { user, accessToken, expiresIn } = await authService.signIn(email, password);
+      const { user, accessToken, refreshToken, expiresIn } = await authService.signIn(email, password);
 
       res.cookie(AUTH_COOKIE_NAME, accessToken, {
         ...AUTH_COOKIE_OPTIONS,
         maxAge: expiresIn * 1000,
       });
+
+      if (refreshToken) {
+        res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+          ...AUTH_COOKIE_OPTIONS,
+          maxAge: REFRESH_COOKIE_MAX_AGE,
+        });
+      }
 
       res.status(200).json(successResponse({ user: { id: user.id, email: user.email } }));
     } catch (error: unknown) {
@@ -33,6 +45,45 @@ export class AuthController {
       }
 
       console.error('Login error:', error);
+      res.status(500).json(errorResponse(message));
+    }
+  };
+
+  refresh = async (req: Request, res: Response): Promise<void> => {
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+
+    if (!refreshToken) {
+      res.status(401).json(errorResponse('Refresh token missing'));
+      return;
+    }
+
+    try {
+      const { user, accessToken, refreshToken: newRefreshToken, expiresIn } =
+        await authService.refreshSession(refreshToken);
+
+      res.cookie(AUTH_COOKIE_NAME, accessToken, {
+        ...AUTH_COOKIE_OPTIONS,
+        maxAge: expiresIn * 1000,
+      });
+
+      if (newRefreshToken) {
+        res.cookie(REFRESH_COOKIE_NAME, newRefreshToken, {
+          ...AUTH_COOKIE_OPTIONS,
+          maxAge: REFRESH_COOKIE_MAX_AGE,
+        });
+      }
+
+      res.status(200).json(successResponse({ user: { id: user.id, email: user.email } }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Error refreshing session';
+      if (isAuthError(error)) {
+        res.clearCookie(AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS);
+        res.clearCookie(REFRESH_COOKIE_NAME, AUTH_COOKIE_OPTIONS);
+        res.status(401).json(errorResponse(message));
+        return;
+      }
+
+      console.error('Refresh error:', error);
       res.status(500).json(errorResponse(message));
     }
   };
@@ -50,6 +101,7 @@ export class AuthController {
     }
 
     res.clearCookie(AUTH_COOKIE_NAME, AUTH_COOKIE_OPTIONS);
+    res.clearCookie(REFRESH_COOKIE_NAME, AUTH_COOKIE_OPTIONS);
     res.status(200).json(successResponse({ message: 'Logged out successfully' }));
   };
 

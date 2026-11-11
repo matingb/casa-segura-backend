@@ -18,6 +18,7 @@ export interface ClienteQuery {
   filtro_tipoCliente?: string;
   filtro_condicionIva?: string;
   filtro_provincia?: string;
+  filtro_region?: string;
   filtro_sucursal?: string;
   filtro_estado?: string;
   operativo?: string;
@@ -41,7 +42,7 @@ export class ClienteController {
       const {
         limit, offset, search, page, sortBy, sortDir,
         filtro_nombre, filtro_tipoCliente, filtro_condicionIva, filtro_provincia,
-        filtro_sucursal, filtro_estado, operativo,
+        filtro_region, filtro_sucursal, filtro_estado, operativo,
       } = req.query;
 
       if (page !== undefined) {
@@ -53,6 +54,7 @@ export class ClienteController {
           tipoCliente: filtro_tipoCliente,
           condicionIva: filtro_condicionIva,
           provincia: filtro_provincia,
+          region: filtro_region,
           sucursal: filtro_sucursal,
           estado: filtro_estado,
         };
