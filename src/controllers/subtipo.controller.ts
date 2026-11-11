@@ -36,7 +36,7 @@ export class SubtipoController {
 
       const data = await service.create(tenantId, tipoId, nombre.trim());
       if (!data) {
-        res.status(404).json(errorResponse('Tipo no encontrado o no pertenece al tenant'));
+        res.status(404).json(errorResponse('La categoría no existe o no pertenece a la empresa'));
         return;
       }
       res.status(201).json({ status: 'success', data });
@@ -58,7 +58,7 @@ export class SubtipoController {
       }
       const data = await service.rename(tenantId, req.params.id, nombre.trim());
       if (!data) {
-        res.status(404).json(errorResponse('Subtipo no encontrado'));
+        res.status(404).json(errorResponse('Subcategoría no encontrada'));
         return;
       }
       res.status(200).json({ status: 'success', data });
@@ -75,7 +75,7 @@ export class SubtipoController {
       const { id } = req.params;
       const data = await service.delete(tenantId, id);
       if (!data) {
-        res.status(404).json(errorResponse('Subtipo no encontrado'));
+        res.status(404).json(errorResponse('Subcategoría no encontrada'));
         return;
       }
       res.status(200).json({ status: 'success', data });

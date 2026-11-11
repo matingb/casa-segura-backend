@@ -2,7 +2,7 @@ import { pool } from '../config/db';
 import { PoolClient } from 'pg';
 import { PrecioInput, Moneda } from '../utils/moneda';
 import { withTransaction } from '../utils/db-transaction';
-import { BusinessError } from '../utils/errors';
+import { BusinessError, CatalogoError } from '../utils/errors';
 import { getLimitSentinel, sliceWithHasMore } from '../utils/pagination';
 import { buildMultiOrderByClause, parseSortParam } from '../utils/sorting';
 
@@ -11,6 +11,7 @@ export interface ProductoFiltros {
   nombre?: string;
   marca?: string;
   modelo?: string;
+  tipo?: string;
   subtipo?: string;
   estado?: string;
   operativo?: boolean;
@@ -136,6 +137,10 @@ export class ProductoRepository {
       params.push(filtros.subtipo);
       filterClauses.push(`sub.nombre = $${params.length}`);
     }
+    if (filtros?.tipo) {
+      params.push(filtros.tipo);
+      filterClauses.push(`cat.nombre = $${params.length}`);
+    }
     if (filtros?.estado) {
       params.push(filtros.estado === 'Activo');
       filterClauses.push(`p.activo = $${params.length}`);
@@ -148,12 +153,14 @@ export class ProductoRepository {
     const countQuery = `
       SELECT COUNT(*) FROM public.producto p
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
+      LEFT JOIN public.tipo cat ON cat.id = sub.tipo_id AND cat.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL ${searchClause} ${filtersSql}
     `;
     const dataParams = [...params, limit, offset];
     const dataQuery = `
       SELECT p.* FROM public.producto_catalogo p
       LEFT JOIN public.subtipo sub ON sub.id = p.subtipo_id
+      LEFT JOIN public.tipo cat ON cat.id = sub.tipo_id AND cat.tenant_id = p.tenant_id
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL ${searchClause} ${filtersSql}
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
@@ -178,12 +185,14 @@ export class ProductoRepository {
       modelo: 'p.modelo',
     };
 
-    if (campo === 'subtipo') {
+    if (campo === 'subtipo' || campo === 'tipo') {
+      const columna = campo === 'tipo' ? 'cat.nombre' : 'sub.nombre';
       const { rows } = await pool.query(
-        `SELECT DISTINCT sub.nombre AS valor
+        `SELECT DISTINCT ${columna} AS valor
          FROM public.producto p
          JOIN public.subtipo sub ON sub.id = p.subtipo_id
-         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND sub.nombre IS NOT NULL
+         LEFT JOIN public.tipo cat ON cat.id = sub.tipo_id AND cat.tenant_id = p.tenant_id
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND ${columna} IS NOT NULL
          ORDER BY valor`,
         [tenantId]
       );
@@ -257,6 +266,28 @@ export class ProductoRepository {
       ]
     );
     return rows[0];
+  }
+
+  async asignarSucursales(productoId: string, sucursalIds: string[], tenantId: string, authId: string, client: PoolClient) {
+    // Bloquea las asignaciones y su estado hasta confirmar el alta completa.
+    const { rows } = await client.query(
+      `SELECT s.id
+       FROM public.sucursal s
+       JOIN public.usuario_sucursal us ON us.sucursal_id = s.id AND us.activo = TRUE
+       JOIN public.usuario u ON u.id = us.usuario_id AND u.auth_id = $3 AND u.activo = TRUE
+       WHERE s.id = ANY($1::uuid[]) AND s.tenant_id = $2 AND u.tenant_id = $2 AND s.activo = TRUE
+       ORDER BY s.id
+       FOR SHARE OF s, us, u`,
+      [sucursalIds, tenantId, authId],
+    );
+    if (new Set(rows.map((row) => row.id)).size !== sucursalIds.length) {
+      throw new CatalogoError('Una sucursal ya no está disponible. Revisá la selección.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+    }
+    await client.query(
+      `INSERT INTO public.producto_sucursal (producto_id, sucursal_id, precio_referencia_confirmada)
+       SELECT $1, sucursal_id, TRUE FROM unnest($2::uuid[]) AS seleccion(sucursal_id)`,
+      [productoId, sucursalIds],
+    );
   }
 
   async update(id: string, data: Partial<ProductoData>, tenantId: string, client?: PoolClient) {

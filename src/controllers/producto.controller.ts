@@ -1,5 +1,6 @@
 import { Response } from 'express';
-import { ProductoService } from '../services/producto.service';
+import { CrearProductoData, ProductoService } from '../services/producto.service';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 import { ProductoData, ProductoFiltros } from '../repositories/producto.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
@@ -18,6 +19,7 @@ export interface ProductoQuery {
   filtro_nombre?: string;
   filtro_marca?: string;
   filtro_modelo?: string;
+  filtro_tipo?: string;
   filtro_subtipo?: string;
   filtro_estado?: string;
   operativo?: string;
@@ -39,7 +41,7 @@ export class ProductoController {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
       const {
         limit, offset, search, page, sortBy, sortDir,
-        filtro_codigo, filtro_nombre, filtro_marca, filtro_modelo, filtro_subtipo, filtro_estado, operativo,
+        filtro_codigo, filtro_nombre, filtro_marca, filtro_modelo, filtro_tipo, filtro_subtipo, filtro_estado, operativo,
       } = req.query;
 
       if (page !== undefined) {
@@ -51,6 +53,7 @@ export class ProductoController {
           nombre: filtro_nombre,
           marca: filtro_marca,
           modelo: filtro_modelo,
+          tipo: filtro_tipo,
           subtipo: filtro_subtipo,
           estado: filtro_estado,
         };
@@ -146,12 +149,13 @@ export class ProductoController {
   };
 
   createProducto = async (
-    req: TypedRequestBody<Omit<ProductoData, 'tenant_id'>>,
+    req: TypedRequestBody<CrearProductoData>,
     res: Response
   ): Promise<void> => {
     try {
       const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const producto = await this.productoService.createProducto(req.body, tenantId, req.file);
+      const alcance = req.body.sucursal_ids === undefined ? undefined : await resolverSucursalAlcance(req.user!.id);
+      const producto = await this.productoService.createProducto(req.body, tenantId, req.file, alcance);
       res.status(201).json(successResponse(producto));
     } catch (error: unknown) {
       if (error instanceof CatalogoError) {

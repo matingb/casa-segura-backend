@@ -47,7 +47,7 @@ export class TipoController {
       }
       const data = await service.rename(tenantId, req.params.id, nombre.trim());
       if (!data) {
-        res.status(404).json(errorResponse('Tipo no encontrado'));
+        res.status(404).json(errorResponse('Categoría no encontrada'));
         return;
       }
       res.status(200).json({ status: 'success', data });
@@ -64,7 +64,7 @@ export class TipoController {
       const { id } = req.params;
       const data = await service.delete(tenantId, id);
       if (!data) {
-        res.status(404).json(errorResponse('Tipo no encontrado'));
+        res.status(404).json(errorResponse('Categoría no encontrada'));
         return;
       }
       res.status(200).json({ status: 'success', data });

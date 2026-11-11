@@ -137,7 +137,7 @@ describe('ProductoController', () => {
 
       await controller.createProducto(req, res as Response);
 
-      expect(ProductoService.prototype.createProducto).toHaveBeenCalledWith(req.body, TENANT_ID, undefined);
+      expect(ProductoService.prototype.createProducto).toHaveBeenCalledWith(req.body, TENANT_ID, undefined, undefined);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockProducto));
     });

@@ -77,7 +77,7 @@ describe('SubtipoController', () => {
       await controller.create(req as Request, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Tipo no encontrado o no pertenece al tenant' });
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'La categoría no existe o no pertenece a la empresa' });
     });
 
     it('debería retornar 201 con el subtipo creado', async () => {
@@ -135,7 +135,7 @@ describe('SubtipoController', () => {
       await controller.delete(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Subtipo no encontrado' });
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Subcategoría no encontrada' });
     });
 
     it('debería retornar 500 si ocurre un error al eliminar', async () => {
@@ -178,7 +178,7 @@ describe('SubtipoController', () => {
       await controller.update(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Subtipo no encontrado' });
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Subcategoría no encontrada' });
     });
   });
 });

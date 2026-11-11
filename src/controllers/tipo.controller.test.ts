@@ -104,7 +104,7 @@ describe('TipoController', () => {
       await controller.delete(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Tipo no encontrado' });
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Categoría no encontrada' });
     });
 
     it('debería retornar 500 si ocurre un error al eliminar', async () => {
@@ -147,7 +147,7 @@ describe('TipoController', () => {
       await controller.update(req, res as Response);
 
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Tipo no encontrado' });
+      expect(res.json).toHaveBeenCalledWith({ status: 'error', message: 'Categoría no encontrada' });
     });
   });
 });

@@ -2,6 +2,11 @@ import { ProductoRepository, ProductoData, ProductoFiltros } from '../repositori
 import { deleteProductImage, uploadProductImage, getPublicUrl } from './storage.service';
 import { BusinessError, CatalogoError } from '../utils/errors';
 import { columnasMonto, escribirConMontos, MontosResueltos, validarContratoPrecio } from './precio-catalogo.service';
+import { PoolClient } from 'pg';
+import { withTransaction } from '../utils/db-transaction';
+import { exigirSucursal, SucursalAlcance } from './sucursal-alcance.service';
+
+export type CrearProductoData = Omit<ProductoData, 'tenant_id'> & { sucursal_ids?: string[] };
 
 const CAMPOS_PRECIO = ['precio_base', 'precio_base_usd', 'moneda_precio_base'];
 const CAMPOS_COSTO = ['costo_reposicion_base_usd', 'moneda_costo_reposicion_base'];
@@ -135,20 +140,39 @@ export class ProductoService {
     }
   }
 
-  async createProducto(data: Omit<ProductoData, 'tenant_id'>, tenantId: string, imagen?: ImagenProducto) {
-    return conCodigoUnico(data.codigo, () => this.crear(data, tenantId, imagen));
+  async createProducto(data: CrearProductoData, tenantId: string, imagen?: ImagenProducto, alcance?: SucursalAlcance) {
+    const { sucursal_ids, ...producto } = data;
+    if (sucursal_ids !== undefined && (!Array.isArray(sucursal_ids) || sucursal_ids.some((id) =>
+      typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) {
+      throw new BusinessError('Seleccioná sucursales válidas.');
+    }
+    const sucursalIds = [...new Set((sucursal_ids ?? []).map((id) => id.toLowerCase()))];
+    if (sucursalIds.length > 0) {
+      if (!alcance || alcance.tenantId !== tenantId) {
+        throw new CatalogoError('No se pudo verificar el acceso a las sucursales.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+      }
+      sucursalIds.forEach((id) => exigirSucursal(alcance, id, true));
+    }
+    return conCodigoUnico(producto.codigo, () => this.crear(producto, tenantId, imagen, sucursalIds, alcance));
   }
 
-  private async crear(data: Omit<ProductoData, 'tenant_id'>, tenantId: string, imagen?: ImagenProducto) {
+  private async crear(data: Omit<ProductoData, 'tenant_id'>, tenantId: string, imagen?: ImagenProducto,
+    sucursalIds: string[] = [], alcance?: SucursalAlcance) {
     this.validarDescuentoBase(data.descuento_base);
     data = normalizarMontos(data);
     const producto = await guardarConImagen(tenantId, undefined, imagen, (imagenUrl) => {
       const datos = { ...data, tenant_id: tenantId, ...(imagenUrl ? { imagen_url: imagenUrl } : {}) };
+      const guardar = async (client?: PoolClient, resueltos: MontosResueltos = {}) => {
+        const creado = await this.productoRepository.create({ ...datos, ...columnasMontos(resueltos) }, client);
+        if (sucursalIds.length > 0) {
+          await this.productoRepository.asignarSucursales(creado.id, sucursalIds, tenantId, alcance!.authId, client!);
+        }
+        return creado;
+      };
       if (tieneMontos(datos)) {
-        return escribirConMontos(tenantId, montosDe(datos), (client, resueltos) =>
-          this.productoRepository.create({ ...datos, ...columnasMontos(resueltos) }, client));
+        return escribirConMontos(tenantId, montosDe(datos), guardar);
       }
-      return this.productoRepository.create(datos);
+      return sucursalIds.length > 0 ? withTransaction(guardar) : guardar();
     });
     return this.productoRepository.findById(producto.id, tenantId);
   }
