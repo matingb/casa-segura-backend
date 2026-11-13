@@ -146,7 +146,10 @@ export class RegionService {
     }
   }
 
-  /** Al menos un punto de venta, sin repetir, todos de la empresa. */
+  /**
+   * Puntos de venta sin repetir, todos de la empresa. Puede no haber ninguno:
+   * la región queda creada (o vaciada) para asignarle puntos de venta más adelante.
+   */
   private async validarSucursales(
     valor: unknown,
     tenantId: string,
@@ -154,9 +157,11 @@ export class RegionService {
     soloActivas = false,
     preservables: string[] = []
   ): Promise<string[]> {
-    if (!Array.isArray(valor) || valor.length === 0 || !valor.every((v) => typeof v === 'string' && v)) {
-      throw new BusinessError('Elegí al menos un punto de venta para la región.');
+    if (valor === undefined || valor === null) return [];
+    if (!Array.isArray(valor) || !valor.every((v) => typeof v === 'string' && v)) {
+      throw new BusinessError('Los puntos de venta de la región no son válidos.');
     }
+    if (valor.length === 0) return [];
     const ids = [...new Set(valor as string[])];
     if (alcance) {
       for (const id of ids) exigirSucursal(alcance, id, soloActivas && !preservables.includes(id));
@@ -174,9 +179,14 @@ export class RegionService {
     return ids;
   }
 
+  /**
+   * Administrar una región exige alcance sobre todos sus puntos de venta. Una
+   * región sin puntos de venta no es de ningún PDV: la administra cualquier
+   * usuario de la empresa.
+   */
   private async exigirRegionEditable(id: string, tenantId: string, alcance: SucursalAlcance): Promise<string[]> {
     const sucursales = await this.repo.findSucursalIds(id, tenantId);
-    if (!sucursales || !sucursales.some((sucursalId) => alcance.sucursalIds.includes(sucursalId))) {
+    if (!sucursales || (sucursales.length > 0 && !sucursales.some((sucursalId) => alcance.sucursalIds.includes(sucursalId)))) {
       throw recursoNoDisponible();
     }
     if (sucursales.some((sucursalId) => !alcance.sucursalIds.includes(sucursalId))) {

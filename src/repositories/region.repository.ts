@@ -67,14 +67,22 @@ const selectRegionEnAlcance = (scopeParam: string) => `
   FROM public.region r
 `;
 
+/**
+ * Una región es visible en el alcance si incluye algún PDV del usuario, o si no
+ * tiene ningún PDV (no pertenece a ninguno, así que es de toda la empresa).
+ */
+const visibleEnAlcance = (scopeParam: string) => `(
+  EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id AND rs.sucursal_id = ANY(${scopeParam}::uuid[]))
+  OR NOT EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id)
+)`;
+
 export class RegionRepository {
   async findAll(tenantId: string, soloActivas = false, sucursalIds?: string[]): Promise<RegionRow[]> {
-    if (sucursalIds && sucursalIds.length === 0) return [];
     if (sucursalIds) {
       const { rows } = await pool.query(
         `${selectRegionEnAlcance('$2')}
          WHERE r.tenant_id = $1
-           AND EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id AND rs.sucursal_id = ANY($2::uuid[]))
+           AND ${visibleEnAlcance('$2')}
            ${soloActivas ? 'AND r.activo = TRUE' : ''}
          ORDER BY r.nombre ASC`, [tenantId, sucursalIds]
       );
@@ -114,12 +122,11 @@ export class RegionRepository {
   }
 
   async findById(id: string, tenantId: string, sucursalIds?: string[]): Promise<RegionRow | null> {
-    if (sucursalIds && sucursalIds.length === 0) return null;
     if (sucursalIds) {
       const { rows } = await pool.query(
         `${selectRegionEnAlcance('$3')}
          WHERE r.id = $1 AND r.tenant_id = $2
-           AND EXISTS (SELECT 1 FROM public.region_sucursal rs WHERE rs.region_id = r.id AND rs.sucursal_id = ANY($3::uuid[]))
+           AND ${visibleEnAlcance('$3')}
          LIMIT 1`, [id, tenantId, sucursalIds]
       );
       return rows[0] ?? null;
@@ -210,7 +217,8 @@ export class RegionRepository {
       'SELECT sucursal_id FROM public.region_sucursal WHERE region_id = $1 FOR UPDATE', [id]
     );
     const ids = actuales.map((row) => row.sucursal_id as string);
-    if (!ids.some((sucursalId) => sucursalIds.includes(sucursalId))) {
+    // Sin puntos de venta la región es de toda la empresa: cualquier usuario la administra.
+    if (ids.length > 0 && !ids.some((sucursalId) => sucursalIds.includes(sucursalId))) {
       throw new CatalogoError('El recurso no está disponible.', 'RECURSO_NO_DISPONIBLE', 404);
     }
     if (ids.some((sucursalId) => !sucursalIds.includes(sucursalId))) {

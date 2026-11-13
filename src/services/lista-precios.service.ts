@@ -52,12 +52,30 @@ export class ListaPreciosService {
     });
   }
 
-  /** Lista general de una sucursal: solo los niveles que valen para todos los clientes. */
-  async obtenerGeneral(tenantId: string, sucursalId: string, alcance?: SucursalAlcance) {
+  /**
+   * Lista general de una sucursal: solo los niveles que valen para todos los clientes.
+   * Con `regionId` suma el descuento de esa región, que tiene que estar activa e
+   * incluir el punto de venta (un punto de venta puede estar en varias regiones).
+   */
+  async obtenerGeneral(tenantId: string, sucursalId: string, alcance?: SucursalAlcance, regionId?: string) {
     if (alcance) exigirSucursal(alcance, sucursalId, true);
     return withTransaction(async (client) => {
       const contexto = await new CotizacionRepository().obtenerPorSucursal(tenantId, sucursalId, client);
-      return this.calcular(tenantId, sucursalId, client, contexto, () => ({}));
+      let region: { id: string; nombre: string; descuento: string } | null = null;
+      if (regionId) {
+        const { rows } = await client.query(
+          `SELECT r.id, r.nombre, r.descuento FROM public.region r
+           JOIN public.region_sucursal rs ON rs.region_id = r.id AND rs.sucursal_id = $2
+           WHERE r.id = $1 AND r.tenant_id = $3 AND r.activo = TRUE`,
+          [regionId, sucursalId, tenantId]
+        );
+        if (!rows[0]) throw new CatalogoError('La región no está disponible para este punto de venta.', 'REGION_NO_DISPONIBLE', 404);
+        region = rows[0];
+      }
+      const lista = await this.calcular(tenantId, sucursalId, client, contexto, () => (
+        region ? { descuentoRegionCliente: numero(region.descuento) } : {}
+      ));
+      return { ...lista, region: region ? { id: region.id, nombre: region.nombre, descuento: numero(region.descuento) } : null };
     });
   }
 
