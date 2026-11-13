@@ -116,6 +116,51 @@ describe('ListaPreciosService: descuentos generales', () => {
     expect(lista.items[0].descuentosAportes.map((a) => a.nivel)).toEqual(['sucursal', 'categoria']);
   });
 
+  it('la lista general con región suma el descuento de la región elegida después de los generales', async () => {
+    const consultas: unknown[][] = [];
+    vi.mocked(pool.query).mockImplementation((async (sql: string, params?: unknown[]) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      if (sql.includes('descuento_categoria_sucursal')) return { rows: [] };
+      if (sql.includes('FROM public.region r')) { consultas.push(params ?? []); return { rows: [{ id: 'cuyo', nombre: 'Cuyo', descuento: '10.00' }] }; }
+      if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central', descuento: '5.00' }] };
+      if (sql.includes('FROM public.producto_sucursal')) return { rows: [{ ...producto, tipo_descuento_general: '5.00' }] };
+      throw new Error(`consulta inesperada: ${sql}`);
+    }) as typeof pool.query);
+    const lista = await new ListaPreciosService().obtenerGeneral('empresa', 'sucursal', undefined, 'cuyo');
+    // 10000 → 9500 (sucursal) → 9025 (categoría) → 8122.50 (región)
+    expect(lista.items[0].precioFinalArs).toBe('8122.50');
+    expect(lista.items[0].descuentosAportes).toEqual([
+      { nivel: 'sucursal', porcentaje: 5 },
+      { nivel: 'categoria', porcentaje: 5 },
+      { nivel: 'region-cliente', porcentaje: 10 },
+    ]);
+    expect(lista.region).toEqual({ id: 'cuyo', nombre: 'Cuyo', descuento: 10 });
+    expect(consultas).toEqual([['cuyo', 'sucursal', 'empresa']]);
+  });
+
+  it('la lista general rechaza una región que no incluye el punto de venta o está inactiva', async () => {
+    vi.mocked(pool.query).mockImplementation((async (sql: string) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      if (sql.includes('FROM public.region r')) return { rows: [] };
+      throw new Error(`consulta inesperada: ${sql}`);
+    }) as typeof pool.query);
+    await expect(new ListaPreciosService().obtenerGeneral('empresa', 'sucursal', undefined, 'otra'))
+      .rejects.toMatchObject({ code: 'REGION_NO_DISPONIBLE', status: 404 });
+  });
+
+  it('la lista general sin región no la informa', async () => {
+    vi.mocked(pool.query).mockImplementation((async (sql: string) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      if (sql.includes('descuento_categoria_sucursal')) return { rows: [] };
+      if (sql.includes('FROM public.sucursal')) return { rows: [{ id: 'sucursal', nombre: 'Central', descuento: null }] };
+      if (sql.includes('FROM public.producto_sucursal')) return { rows: [producto] };
+      throw new Error(`consulta inesperada: ${sql}`);
+    }) as typeof pool.query);
+    const lista = await new ListaPreciosService().obtenerGeneral('empresa', 'sucursal');
+    expect(lista.region).toBeNull();
+    expect(lista.items[0].precioFinalArs).toBe('10000.00');
+  });
+
   it('el descuento del cliente en el producto reemplaza al general, que igual se informa', async () => {
     vi.mocked(pool.query).mockImplementation((async (sql: string) => {
       if (sql.includes('descuento_categoria_sucursal')) return { rows: [] };

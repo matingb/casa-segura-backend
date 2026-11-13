@@ -36,9 +36,13 @@ export class DescuentoEngineController {
       if (typeof req.query.sucursalId !== 'string') {
         throw new CatalogoError('Elegí una sucursal.', 'CONTEXTO_INVALIDO');
       }
+      const { regionId } = req.query;
+      if (regionId !== undefined && typeof regionId !== 'string') {
+        throw new CatalogoError('La región indicada no es válida.', 'CONTEXTO_INVALIDO');
+      }
       const alcance = await resolverSucursalAlcance(req.user!.id);
       res.json(successResponse(await new ListaPreciosService().obtenerGeneral(
-        alcance.tenantId, req.query.sucursalId, alcance)));
+        alcance.tenantId, req.query.sucursalId, alcance, regionId || undefined)));
     } catch (error) {
       if (error instanceof CatalogoError) res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
       else { console.error('[ListaPrecios]', error); res.status(500).json(errorResponse('No se pudo generar la lista de precios.')); }
