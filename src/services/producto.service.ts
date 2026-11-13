@@ -7,6 +7,15 @@ import { withTransaction } from '../utils/db-transaction';
 import { exigirSucursal, SucursalAlcance } from './sucursal-alcance.service';
 
 export type CrearProductoData = Omit<ProductoData, 'tenant_id'> & { sucursal_ids?: string[] };
+export type EditarProductoData = Partial<CrearProductoData>;
+
+function leerSucursales(ids: unknown): string[] {
+  if (!Array.isArray(ids) || ids.some(id =>
+    typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+    throw new BusinessError('Seleccioná sucursales válidas.');
+  }
+  return [...new Set(ids.map(id => id.toLowerCase()))];
+}
 
 const CAMPOS_PRECIO = ['precio_base', 'precio_base_usd', 'moneda_precio_base'];
 const CAMPOS_COSTO = ['costo_reposicion_base_usd', 'moneda_costo_reposicion_base'];
@@ -123,8 +132,10 @@ export class ProductoService {
     return this.productoRepository.findValoresUnicos(tenantId, campo);
   }
 
-  async getProducto(id: string, tenantId: string) {
-    return this.productoRepository.findById(id, tenantId);
+  async getProducto(id: string, tenantId: string, alcance?: SucursalAlcance) {
+    const producto = await this.productoRepository.findById(id, tenantId);
+    if (!producto || !alcance || alcance.tenantId !== tenantId) return producto;
+    return { ...producto, sucursales: await this.productoRepository.findSucursales(id, tenantId, alcance.sucursalIds) };
   }
 
   /**
@@ -142,11 +153,7 @@ export class ProductoService {
 
   async createProducto(data: CrearProductoData, tenantId: string, imagen?: ImagenProducto, alcance?: SucursalAlcance) {
     const { sucursal_ids, ...producto } = data;
-    if (sucursal_ids !== undefined && (!Array.isArray(sucursal_ids) || sucursal_ids.some((id) =>
-      typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))) {
-      throw new BusinessError('Seleccioná sucursales válidas.');
-    }
-    const sucursalIds = [...new Set((sucursal_ids ?? []).map((id) => id.toLowerCase()))];
+    const sucursalIds = sucursal_ids === undefined ? [] : leerSucursales(sucursal_ids);
     if (sucursalIds.length > 0) {
       if (!alcance || alcance.tenantId !== tenantId) {
         throw new CatalogoError('No se pudo verificar el acceso a las sucursales.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
@@ -177,11 +184,21 @@ export class ProductoService {
     return this.productoRepository.findById(producto.id, tenantId);
   }
 
-  async updateProducto(id: string, data: Partial<ProductoData>, tenantId: string, imagen?: ImagenProducto) {
-    return conCodigoUnico(data.codigo, () => this.actualizar(id, data, tenantId, imagen));
+  async updateProducto(id: string, data: EditarProductoData, tenantId: string, imagen?: ImagenProducto, alcance?: SucursalAlcance) {
+    const { sucursal_ids, ...producto } = data;
+    const sucursales = sucursal_ids === undefined ? undefined : leerSucursales(sucursal_ids);
+    if (sucursales) {
+      if (!alcance || alcance.tenantId !== tenantId) {
+        throw new CatalogoError('No se pudo verificar el acceso a las sucursales.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
+      }
+      sucursales.forEach(sucursalId => exigirSucursal(alcance, sucursalId));
+    }
+    return conCodigoUnico(producto.codigo, () => this.actualizar(id, producto, tenantId, imagen,
+      sucursales && alcance ? { ids: sucursales, alcance } : undefined));
   }
 
-  private async actualizar(id: string, data: Partial<ProductoData>, tenantId: string, imagen?: ImagenProducto) {
+  private async actualizar(id: string, data: Partial<ProductoData>, tenantId: string, imagen?: ImagenProducto,
+    seleccion?: { ids: string[]; alcance: SucursalAlcance }) {
     const producto = await this.productoRepository.findById(id, tenantId);
     if (!producto) return null;
     if ('descuento_base' in data) {
@@ -190,13 +207,24 @@ export class ProductoService {
     data = normalizarMontos(data);
     const guardado = await guardarConImagen(tenantId, id, imagen, (imagenUrl) => {
       const datos = { ...data, ...(imagenUrl ? { imagen_url: imagenUrl } : {}) };
+      const guardar = async (client: PoolClient, resueltos: MontosResueltos = {}) => {
+        if (!seleccion) return this.productoRepository.update(id, { ...datos, ...columnasMontos(resueltos) }, tenantId, client);
+        if (!await this.productoRepository.bloquearProducto(id, tenantId, client)) return null;
+        const { ids, alcance } = seleccion;
+        const actuales = await this.productoRepository.findSucursales(id, tenantId, alcance.sucursalIds, client);
+        const quitar = actuales.map(sucursal => sucursal.id).filter(sucursalId => !ids.includes(sucursalId));
+        const agregar = ids.filter(sucursalId => !actuales.some(sucursal => sucursal.id === sucursalId));
+        if (quitar.length) await this.productoRepository.quitarSucursales(id, quitar, tenantId, alcance.authId, client);
+        if (agregar.length) await this.productoRepository.asignarSucursales(id, agregar, tenantId, alcance.authId, client);
+        return await this.productoRepository.update(id, { ...datos, ...columnasMontos(resueltos) }, tenantId, client) ?? producto;
+      };
       if (tieneMontos(datos)) {
-        return escribirConMontos(tenantId, montosDe(datos), (client, resueltos) =>
-          this.productoRepository.update(id, { ...datos, ...columnasMontos(resueltos) }, tenantId, client));
+        return escribirConMontos(tenantId, montosDe(datos), guardar);
       }
+      if (seleccion) return withTransaction(guardar);
       return this.productoRepository.update(id, datos, tenantId);
     });
-    return guardado ? this.productoRepository.findById(id, tenantId) : null;
+    return guardado ? this.getProducto(id, tenantId, seleccion?.alcance) : null;
   }
 
   async uploadImage(id: string, tenantId: string, buffer: Buffer, mimetype: string) {

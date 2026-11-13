@@ -1,7 +1,7 @@
 import { Response } from 'express';
-import { CrearProductoData, ProductoService } from '../services/producto.service';
+import { CrearProductoData, EditarProductoData, ProductoService } from '../services/producto.service';
 import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
-import { ProductoData, ProductoFiltros } from '../repositories/producto.repository';
+import { ProductoFiltros } from '../repositories/producto.repository';
 import { getTenantIdByAuthId } from '../utils/tenant';
 import { errorResponse, successResponse, paginatedResponse } from '../utils/response';
 import { normalizePaginationLimit } from '../utils/pagination';
@@ -134,14 +134,18 @@ export class ProductoController {
 
   getProducto = async (req: TypedRequestParams<{ id: string }>, res: Response): Promise<void> => {
     try {
-      const tenantId = await getTenantIdByAuthId(req.user!.id);
-      const producto = await this.productoService.getProducto(req.params.id, tenantId);
+      const alcance = await resolverSucursalAlcance(req.user!.id);
+      const producto = await this.productoService.getProducto(req.params.id, alcance.tenantId, alcance);
       if (!producto) {
         res.status(404).json(errorResponse('Producto no encontrado'));
         return;
       }
       res.status(200).json(successResponse(producto));
     } catch (error: unknown) {
+      if (error instanceof CatalogoError) {
+        res.status(error.status).json({ ...errorResponse(error.message), code: error.code });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Internal server error';
       console.error('[ProductoController] getProducto:', error);
       res.status(500).json(errorResponse(message));
@@ -173,7 +177,7 @@ export class ProductoController {
   };
 
   updateProducto = async (
-    req: TypedRequest<unknown, Partial<ProductoData>, { id: string }>,
+    req: TypedRequest<unknown, EditarProductoData, { id: string }>,
     res: Response
   ): Promise<void> => {
     try {
@@ -183,6 +187,7 @@ export class ProductoController {
         req.body,
         tenantId,
         req.file,
+        req.body.sucursal_ids === undefined ? undefined : await resolverSucursalAlcance(req.user!.id),
       );
       if (!producto) {
         res.status(404).json(errorResponse('Producto no encontrado'));
