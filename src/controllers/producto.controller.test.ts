@@ -3,10 +3,12 @@ import { Request, Response } from 'express';
 import { ProductoController } from './producto.controller';
 import { ProductoService } from '../services/producto.service';
 import { getTenantIdByAuthId } from '../utils/tenant';
+import { resolverSucursalAlcance } from '../services/sucursal-alcance.service';
 import { errorResponse, successResponse } from '../utils/response';
 
 vi.mock('../services/producto.service');
 vi.mock('../utils/tenant');
+vi.mock('../services/sucursal-alcance.service');
 vi.mock('../utils/response', () => ({
   errorResponse: vi.fn((msg) => ({ error: msg })),
   successResponse: vi.fn((data) => ({ data })),
@@ -19,6 +21,7 @@ describe('ProductoController', () => {
   let res: Partial<Response>;
   const TENANT_ID = 'tenant-123';
   const AUTH_ID = 'auth-123';
+  const alcance = { tenantId: TENANT_ID, authId: AUTH_ID, usuarioId: 'u1', sucursalIds: [], sucursalesActivasIds: [] };
 
   beforeEach(() => {
     controller = new ProductoController();
@@ -33,6 +36,7 @@ describe('ProductoController', () => {
       json: vi.fn(),
     };
     vi.mocked(getTenantIdByAuthId).mockResolvedValue(TENANT_ID);
+    vi.mocked(resolverSucursalAlcance).mockResolvedValue(alcance);
   });
 
   describe('getAllProductos', () => {
@@ -113,7 +117,7 @@ describe('ProductoController', () => {
 
       await controller.getProducto(req, res as Response);
 
-      expect(ProductoService.prototype.getProducto).toHaveBeenCalledWith('prod-1', TENANT_ID);
+      expect(ProductoService.prototype.getProducto).toHaveBeenCalledWith('prod-1', TENANT_ID, alcance);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockProducto));
     });
@@ -152,7 +156,7 @@ describe('ProductoController', () => {
 
       await controller.updateProducto(req, res as Response);
 
-      expect(ProductoService.prototype.updateProducto).toHaveBeenCalledWith('prod-1', req.body, TENANT_ID, undefined);
+      expect(ProductoService.prototype.updateProducto).toHaveBeenCalledWith('prod-1', req.body, TENANT_ID, undefined, undefined);
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(successResponse(mockProducto));
     });

@@ -224,6 +224,26 @@ export class ProductoRepository {
     return rows[0] ?? null;
   }
 
+  async findSucursales(id: string, tenantId: string, sucursalIds: string[], client?: PoolClient) {
+    const { rows } = await (client ?? pool).query(
+      `SELECT s.id, s.nombre
+       FROM public.producto_sucursal ps
+       JOIN public.sucursal s ON s.id = ps.sucursal_id AND s.tenant_id = $2
+       WHERE ps.producto_id = $1 AND ps.deleted_at IS NULL AND s.id = ANY($3::uuid[])
+       ORDER BY s.nombre, s.id`,
+      [id, tenantId, sucursalIds],
+    );
+    return rows;
+  }
+
+  async bloquearProducto(id: string, tenantId: string, client: PoolClient) {
+    const result = await client.query(
+      'SELECT id FROM public.producto WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL FOR UPDATE',
+      [id, tenantId],
+    );
+    return Boolean(result.rowCount);
+  }
+
   async create(data: ProductoData, client?: PoolClient) {
     const { rows } = await (client ?? pool).query(
       `INSERT INTO public.producto
@@ -269,24 +289,47 @@ export class ProductoRepository {
   }
 
   async asignarSucursales(productoId: string, sucursalIds: string[], tenantId: string, authId: string, client: PoolClient) {
-    // Bloquea las asignaciones y su estado hasta confirmar el alta completa.
+    await this.validarAccesoSucursales(sucursalIds, tenantId, authId, client, true);
+    await client.query(
+      `INSERT INTO public.producto_sucursal (producto_id, sucursal_id, precio_referencia_confirmada)
+       SELECT $1, sucursal_id, TRUE FROM unnest($2::uuid[]) AS seleccion(sucursal_id)
+       ON CONFLICT (producto_id, sucursal_id) DO UPDATE SET deleted_at = NULL, updated_at = NOW()
+       WHERE producto_sucursal.deleted_at IS NOT NULL`,
+      [productoId, sucursalIds],
+    );
+  }
+
+  private async validarAccesoSucursales(sucursalIds: string[], tenantId: string, authId: string, client: PoolClient, soloActivas: boolean) {
     const { rows } = await client.query(
       `SELECT s.id
        FROM public.sucursal s
        JOIN public.usuario_sucursal us ON us.sucursal_id = s.id AND us.activo = TRUE
        JOIN public.usuario u ON u.id = us.usuario_id AND u.auth_id = $3 AND u.activo = TRUE
-       WHERE s.id = ANY($1::uuid[]) AND s.tenant_id = $2 AND u.tenant_id = $2 AND s.activo = TRUE
+       WHERE s.id = ANY($1::uuid[]) AND s.tenant_id = $2 AND u.tenant_id = $2 AND (NOT $4::boolean OR s.activo)
        ORDER BY s.id
        FOR SHARE OF s, us, u`,
-      [sucursalIds, tenantId, authId],
+      [sucursalIds, tenantId, authId, soloActivas],
     );
     if (new Set(rows.map((row) => row.id)).size !== sucursalIds.length) {
       throw new CatalogoError('Una sucursal ya no está disponible. Revisá la selección.', 'SUCURSAL_FUERA_DE_ALCANCE', 403);
     }
-    await client.query(
-      `INSERT INTO public.producto_sucursal (producto_id, sucursal_id, precio_referencia_confirmada)
-       SELECT $1, sucursal_id, TRUE FROM unnest($2::uuid[]) AS seleccion(sucursal_id)`,
+  }
+
+  async quitarSucursales(productoId: string, sucursalIds: string[], tenantId: string, authId: string, client: PoolClient) {
+    await this.validarAccesoSucursales(sucursalIds, tenantId, authId, client, false);
+    const { rows } = await client.query(
+      `SELECT id, cantidad_disponible, cantidad_reservada
+       FROM public.producto_sucursal
+       WHERE producto_id = $1 AND sucursal_id = ANY($2::uuid[]) AND deleted_at IS NULL
+       ORDER BY sucursal_id FOR UPDATE`,
       [productoId, sucursalIds],
+    );
+    if (rows.some(row => Number(row.cantidad_disponible) !== 0 || Number(row.cantidad_reservada) !== 0)) {
+      throw new BusinessError('No se puede quitar una sucursal con stock disponible o reservado.');
+    }
+    await client.query(
+      'UPDATE public.producto_sucursal SET deleted_at = NOW(), updated_at = NOW() WHERE id = ANY($1::uuid[])',
+      [rows.map(row => row.id)],
     );
   }
 
